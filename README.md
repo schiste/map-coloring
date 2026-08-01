@@ -9,10 +9,9 @@ The application has no build step, no runtime dependencies, and sends no map dat
 ## Features
 
 - Click countries to cycle through 2–8 custom colors
-- Choose every SVG from the Commons category for world maps with small regions drawn as circles
+- Choose verified interactive SVGs from the Commons world-map category
 - Switch between world country maps and continent-focused maps
-- Choose curated maps for Europe, Africa, Asia, North America, South America, and Oceania while
-  retaining ISO color assignments between maps
+- Switch between curated Europe and Africa maps while retaining ISO color assignments
 - Read each map's short Commons description and open its source page
 - Search by English name, ISO 3166-1 alpha-2, or alpha-3 code
 - Import pasted text or CSV data with automatic country-column detection
@@ -60,14 +59,12 @@ webservice template, and starts or restarts the service. The production URL is
   under CC BY-SA 4.0 and
   [BlankMap-Africa.svg](https://commons.wikimedia.org/wiki/File:BlankMap-Africa.svg) in the public
   domain.
-- The Asia, North America, South America, and Oceania LAEA location maps are by Uwe Dedering and
-  licensed under CC BY-SA 3.0; their source pages and full descriptions are linked from the map
-  selector.
 - `data/countries.source.json` comes from
   [ISO-3166-Countries-with-Regional-Codes](https://github.com/lukes/ISO-3166-Countries-with-Regional-Codes)
   and is licensed under CC BY-SA 4.0.
 - Application code is licensed under the MIT License; see [LICENSE](LICENSE).
 
 Each source map retains its own boundaries and visibility. Coloring a recognized country applies
-to SVG elements carrying that country's ISO-2 class. The selector explicitly identifies legacy
-source SVGs that do not contain ISO country groups; those remain available for viewing and export.
+to SVG elements carrying that country's ISO-2 class. Only maps verified to expose selectable ISO
+country groups are listed; new Commons category files must pass that compatibility check before
+being added to the verified allowlist.

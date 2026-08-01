@@ -33,7 +33,7 @@ test("maps Commons image metadata to a selector entry", () => {
   assert.equal(map.scope, "world");
 });
 
-test("follows Commons category pagination and prioritizes the microstates map", async () => {
+test("keeps only verified interactive maps and prioritizes the microstates map", async () => {
   const responses = [
     {
       continue: { gcmcontinue: "next-page" },
@@ -42,6 +42,10 @@ test("follows Commons category pagination and prioritizes the microstates map", 
           {
             title: "File:Zeta.svg",
             imageinfo: [{ url: "https://upload.wikimedia.org/zeta.svg", extmetadata: {} }],
+          },
+          {
+            title: "File:BlankMap-World-with-Circles.svg",
+            imageinfo: [{ url: "https://upload.wikimedia.org/circles.svg", extmetadata: {} }],
           },
         ],
       },
@@ -66,22 +70,20 @@ test("follows Commons category pagination and prioritizes the microstates map", 
   const maps = await fetchMapCatalog(fetcher);
 
   assert.equal(requestCount, 2);
-  assert.equal(maps.length, 2);
-  assert.equal(maps[0].title, "File:BlankMap-World-Microstates.svg");
+  assert.deepEqual(
+    maps.map((map) => map.title),
+    ["File:BlankMap-World-Microstates.svg", "File:BlankMap-World-with-Circles.svg"],
+  );
 });
 
-test("builds the curated six-continent catalog in configured order", async () => {
+test("builds the curated interactive continent catalog in configured order", async () => {
   const fetcher = async () => ({
     ok: true,
     json: async () => ({
       query: {
         pages: [
           "File:BlankMap-Africa.svg",
-          "File:Oceania laea location map.svg",
           "File:Blank map of Europe (without disputed regions).svg",
-          "File:South America laea location map.svg",
-          "File:Asia laea location map.svg",
-          "File:North America laea location map.svg",
         ].map((title, index) => ({
           title,
           imageinfo: [
@@ -102,10 +104,6 @@ test("builds the curated six-continent catalog in configured order", async () =>
     [
       ["Europe", "continent"],
       ["Africa", "continent"],
-      ["Asia", "continent"],
-      ["North America", "continent"],
-      ["South America", "continent"],
-      ["Oceania", "continent"],
     ],
   );
   assert.equal(maps[0].categoryMap, false);

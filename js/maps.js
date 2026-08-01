@@ -3,6 +3,21 @@ export const MAP_CATEGORY =
 
 export const PREFERRED_MAP_TITLE = "File:BlankMap-World-Microstates.svg";
 
+export const VERIFIED_INTERACTIVE_WORLD_MAP_TITLES = Object.freeze([
+  PREFERRED_MAP_TITLE,
+  "File:Blank Detailed Map with AUKUSCA subdivisions.svg",
+  "File:Blank Map with US subdivisions and microstates.svg",
+  "File:Blank world map (Miller cylindrical projection).svg",
+  "File:BlankMap-World-Microstates-Unrecognised.svg",
+  "File:BlankMap-World-Sovereign Nations.svg",
+  "File:BlankMap-World-with-Circles.svg",
+  "File:World map configurable.svg",
+]);
+
+const VERIFIED_INTERACTIVE_WORLD_MAP_TITLE_SET = new Set(
+  VERIFIED_INTERACTIVE_WORLD_MAP_TITLES,
+);
+
 export const CONTINENT_MAPS = [
   {
     title: "File:Blank map of Europe (without disputed regions).svg",
@@ -11,22 +26,6 @@ export const CONTINENT_MAPS = [
   {
     title: "File:BlankMap-Africa.svg",
     region: "Africa",
-  },
-  {
-    title: "File:Asia laea location map.svg",
-    region: "Asia",
-  },
-  {
-    title: "File:North America laea location map.svg",
-    region: "North America",
-  },
-  {
-    title: "File:South America laea location map.svg",
-    region: "South America",
-  },
-  {
-    title: "File:Oceania laea location map.svg",
-    region: "Oceania",
   },
 ];
 
@@ -73,7 +72,7 @@ export async function fetchMapCatalog(fetcher = fetch) {
 
     for (const page of data.query?.pages || []) {
       const map = mapFromApiPage(page);
-      if (map) maps.push(map);
+      if (map && VERIFIED_INTERACTIVE_WORLD_MAP_TITLE_SET.has(map.title)) maps.push(map);
     }
     continuation = data.continue?.gcmcontinue || "";
   } while (continuation);
