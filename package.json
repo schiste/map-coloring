@@ -1,0 +1,13 @@
+{
+  "name": "maphue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test",
+    "deploy:toolforge": "scripts/deploy-toolforge.sh --apply",
+    "deploy:toolforge:dry-run": "scripts/deploy-toolforge.sh --dry-run",
+    "deploy:toolforge:restart": "scripts/deploy-toolforge.sh --apply --restart"
+  }
+}

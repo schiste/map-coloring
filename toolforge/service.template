@@ -1,0 +1,4 @@
+# Toolforge webservice template for https://maphue.toolforge.org/
+backend: kubernetes
+type: php8.4
+health-check-path: /healthz

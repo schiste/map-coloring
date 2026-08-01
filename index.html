@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Color countries on a world map, build a legend, import CSV data, and export the result as SVG."
+    >
+    <title>Maphue — Wikimedia world map color studio</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell theme-light" id="app-shell">
+      <a class="skip-link" href="#workspace-preview">Skip to map preview</a>
+
+      <header class="top-band">
+        <div class="top-band-title">
+          <div class="app-picker" id="app-picker">
+            <h1>
+              <button
+                class="app-picker-button"
+                id="app-picker-button"
+                type="button"
+                aria-expanded="false"
+                aria-controls="app-picker-menu"
+                aria-label="Choose Wikimedia generator"
+              >
+                <span class="app-picker-title">Maphue</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </button>
+            </h1>
+            <p>Client-side map coloring for Wikimedia projects</p>
+
+            <div class="app-picker-menu is-hidden" id="app-picker-menu">
+              <a class="app-picker-option app-picker-option-current" href="./" aria-current="page">
+                <span class="app-picker-option-title">
+                  <span>Maphue</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                  </svg>
+                </span>
+                <span class="app-picker-option-description">Interactive world map coloring and data import</span>
+              </a>
+              <a class="app-picker-option" href="https://logo-round-gen.toolforge.org/">
+                <span class="app-picker-option-title">WikiRound Generator</span>
+                <span class="app-picker-option-description">Live Wikimedia logo clusters</span>
+              </a>
+              <a class="app-picker-option" href="https://wikimedia-qr-generator.toolforge.org/">
+                <span class="app-picker-option-title">Wikimedia QR Generator</span>
+                <span class="app-picker-option-description">Codes for movement links and campaign pages</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="top-band-actions">
+          <button class="header-button" id="reset-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M3 12a9 9 0 1 0 3-6.7M3 4v6h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+            <span>Reset</span>
+          </button>
+
+          <div class="theme-toggle" role="group" aria-label="Interface theme">
+            <button class="active" id="theme-light" type="button" aria-label="Light interface" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+              </svg>
+            </button>
+            <button id="theme-dark" type="button" aria-label="Dark interface" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 14.7A8.5 8.5 0 0 1 9.3 4 7 7 0 1 0 20 14.7Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="sidebar control-scrollbar" aria-label="Map controls">
+          <div class="sidebar-body controls">
+            <section class="control-section" aria-labelledby="map-choice-heading">
+              <div class="section-heading">
+                <div class="section-title">
+                  <span class="status-dot status-dot-amber" aria-hidden="true"></span>
+                  <h2 id="map-choice-heading">1. Map</h2>
+                </div>
+                <span class="section-meta" id="map-count">Loading…</span>
+              </div>
+
+              <p class="section-note" id="map-scope-note">
+                Choose a blank world map from the Wikimedia Commons collection.
+              </p>
+
+              <div class="scope-switcher" role="group" aria-label="Map level">
+                <button
+                  class="is-active"
+                  type="button"
+                  data-map-scope="world"
+                  aria-pressed="true"
+                >World · countries</button>
+                <button
+                  type="button"
+                  data-map-scope="continent"
+                  aria-pressed="false"
+                >Continents</button>
+              </div>
+
+              <label class="field" for="map-select">
+                <span id="map-select-label">Base map</span>
+                <select id="map-select" disabled>
+                  <option>Loading maps from Commons…</option>
+                </select>
+              </label>
+
+              <div class="map-choice-summary">
+                <div class="map-choice-thumbnail">
+                  <img id="map-thumbnail" alt="" hidden>
+                  <span id="map-thumbnail-placeholder">SVG</span>
+                </div>
+                <div>
+                  <p class="map-description" id="map-description">
+                    Loading the category description fields…
+                  </p>
+                  <p class="map-compatibility" id="map-compatibility">Checking country groups…</p>
+                  <a
+                    class="map-source-link"
+                    id="map-source-link"
+                    href="https://commons.wikimedia.org/wiki/Category:SVG_blank_maps_of_the_world_with_small_regions_drawn_as_circles"
+                  >View on Commons</a>
+                </div>
+              </div>
+            </section>
+
+            <section class="control-section" aria-labelledby="countries-heading">
+              <div class="section-heading">
+                <div class="section-title">
+                  <span class="status-dot" aria-hidden="true"></span>
+                  <h2 id="countries-heading">2. Countries</h2>
+                </div>
+                <span class="section-meta" id="country-total">— available</span>
+              </div>
+
+              <p class="section-note">
+                Search by English name, ISO-2, or ISO-3. Select a country to cycle its color.
+              </p>
+
+              <label class="search-field field" for="country-search">
+                <span>Find a country</span>
+                <span class="search-input">
+                  <svg aria-hidden="true" viewBox="0 0 20 20">
+                    <path d="m14.5 14.5 4 4m-2-10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"></path>
+                  </svg>
+                  <input
+                    id="country-search"
+                    type="search"
+                    placeholder="France, FR, or FRA"
+                    autocomplete="off"
+                  >
+                </span>
+              </label>
+
+              <div class="country-list" id="country-list" role="listbox" aria-label="Countries"></div>
+              <p class="empty-state" id="country-empty" hidden>No matching countries.</p>
+            </section>
+
+            <section class="control-section" aria-labelledby="palette-heading">
+              <div class="section-heading">
+                <div class="section-title">
+                  <span class="status-dot status-dot-green" aria-hidden="true"></span>
+                  <h2 id="palette-heading">3. Palette & legend</h2>
+                </div>
+                <label class="section-meta section-select">
+                  <span class="sr-only">Number of colors</span>
+                  <select id="palette-size" aria-label="Number of colors">
+                    <option>2</option>
+                    <option selected>3</option>
+                    <option>4</option>
+                    <option>5</option>
+                    <option>6</option>
+                    <option>7</option>
+                    <option>8</option>
+                  </select>
+                  <span>colors</span>
+                </label>
+              </div>
+
+              <p class="section-note">
+                Each selection advances through this order, then returns the country to uncolored.
+              </p>
+              <div class="palette-list" id="palette-list"></div>
+
+              <div class="annotation-subsection" aria-labelledby="annotations-heading">
+                <div class="subsection-heading">
+                  <strong id="annotations-heading">Map annotations</strong>
+                  <span>Live preview & exports</span>
+                </div>
+
+                <label class="toggle-row" for="legend-enabled">
+                  <span>
+                    <strong>Include legend</strong>
+                    <small>Show palette labels on the map</small>
+                  </span>
+                  <input id="legend-enabled" type="checkbox" checked>
+                  <span class="toggle-control" aria-hidden="true"></span>
+                </label>
+
+                <fieldset class="annotation-options" id="legend-options">
+                  <legend>Legend position</legend>
+                  <div class="position-picker" id="legend-position">
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="top-left">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Top left</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="top-center">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Top center</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="top-right">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Top right</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="center-left">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Center left</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="center">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Center</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="center-right">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Center right</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="bottom-left" checked>
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Bottom left</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="bottom-center">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Bottom center</span>
+                    </label>
+                    <label>
+                      <input class="sr-only" type="radio" name="legend-position" value="bottom-right">
+                      <span aria-hidden="true"></span>
+                      <span class="sr-only">Bottom right</span>
+                    </label>
+                  </div>
+
+                  <div class="legend-background-controls">
+                    <label class="field compact-color-field">
+                      <span>Background</span>
+                      <input
+                        class="color-picker"
+                        id="legend-background"
+                        type="color"
+                        value="#fffefa"
+                        aria-label="Legend background color"
+                      >
+                    </label>
+                    <label class="field opacity-field">
+                      <span>Transparency <output id="legend-opacity-value">0%</output></span>
+                      <input
+                        id="legend-opacity"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value="0"
+                      >
+                    </label>
+                  </div>
+                </fieldset>
+
+                <div class="field-group">
+                  <label class="field">
+                    <span>Map title</span>
+                    <input
+                      id="export-title"
+                      type="text"
+                      maxlength="120"
+                      placeholder="Optional title"
+                    >
+                  </label>
+                  <label class="field">
+                    <span>Title position</span>
+                    <select id="title-position">
+                      <option value="top">Top center</option>
+                      <option value="bottom">Bottom center</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="control-section" aria-labelledby="import-heading">
+              <div class="section-heading">
+                <div class="section-title">
+                  <span class="status-dot status-dot-red" aria-hidden="true"></span>
+                  <h2 id="import-heading">4. Import</h2>
+                </div>
+                <span class="section-meta">CSV / text</span>
+              </div>
+
+              <p class="section-note">
+                Use one country per row or select a country column from CSV data.
+              </p>
+
+              <label class="field" for="import-text">
+                <span>Country data</span>
+                <textarea
+                  id="import-text"
+                  rows="7"
+                  placeholder="country&#10;France&#10;DEU&#10;JP"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+
+              <div class="field-group import-options">
+                <label class="field">
+                  <span>Assign to</span>
+                  <select id="import-color"></select>
+                </label>
+                <label class="field">
+                  <span>Column</span>
+                  <select id="import-column">
+                    <option value="auto">Detect automatically</option>
+                  </select>
+                </label>
+              </div>
+
+              <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" hidden>
+              <div class="import-actions">
+                <button class="secondary-action" id="choose-file-button" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v12m0-12 4 4m-4-4L8 7M4 14v5h16v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                  </svg>
+                  <span>Choose CSV</span>
+                </button>
+                <button class="primary-action" id="apply-import-button" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                  </svg>
+                  <span>Apply</span>
+                </button>
+              </div>
+              <output class="import-report" id="import-report" hidden></output>
+            </section>
+
+          </div>
+        </aside>
+
+        <main class="workspace" id="workspace-preview" aria-label="Map preview and export">
+          <div class="workspace-toolbar">
+            <div>
+              <span class="toolbar-label" id="active-map-name">Interactive world map</span>
+              <strong class="workspace-title">Click a country to cycle its color</strong>
+            </div>
+            <div class="workspace-toolbar-actions">
+              <span class="qr-meta" id="assigned-count">0 countries</span>
+              <span class="shortcut-help"><kbd>Shift</kbd> + click clears</span>
+            </div>
+          </div>
+
+          <div class="canvas-stage">
+            <div class="canvas-frame map-frame" id="map-frame">
+              <div class="map-loading" id="map-loading">
+                <span class="loader" aria-hidden="true"></span>
+                <span>Preparing the map…</span>
+              </div>
+              <div
+                class="map-container"
+                id="map-container"
+                role="img"
+                aria-label="Interactive political map of the world"
+              ></div>
+              <output class="map-tooltip" id="map-tooltip" hidden></output>
+              <div class="canvas-metadata">
+                <span id="selection-summary">No countries colored yet.</span>
+                <span id="map-dimensions">SVG map</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="export-bar">
+            <div class="export-info">
+              <strong>Export your map</strong>
+              <span>Annotations use the export layout settings and remain editable in SVG.</span>
+            </div>
+            <div class="export-actions">
+              <button class="secondary-action" id="download-csv-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 3h10l4 4v14H5zM15 3v5h5M8 13h8M8 17h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+                </svg>
+                <span>Assignments CSV</span>
+              </button>
+              <button class="secondary-action" id="export-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12m0 0 5-5m-5 5-5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+                <span>SVG</span>
+              </button>
+              <button class="secondary-action" id="export-png-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect>
+                  <circle cx="8.5" cy="9" r="1.5" fill="currentColor"></circle>
+                  <path d="m5 18 5-5 3 3 2-2 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+                <span>PNG</span>
+              </button>
+              <button class="primary-action" id="export-pdf-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 3h10l4 4v14H5zM15 3v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+                  <path d="M8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                </svg>
+                <span>PDF</span>
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <footer class="app-footer">
+        <span id="save-status">Saved locally</span>
+        <span aria-hidden="true">/</span>
+        <span>Data stays in your browser</span>
+        <span aria-hidden="true">/</span>
+        <a href="https://github.com/schiste/map-coloring">GitHub</a>
+        <span aria-hidden="true">/</span>
+        <a href="https://commons.wikimedia.org/wiki/Category:SVG_blank_maps_of_the_world_with_small_regions_drawn_as_circles">
+          Commons map collection
+        </a>
+      </footer>
+
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+      <dialog id="reset-dialog">
+        <form method="dialog">
+          <span class="dialog-kicker">Clear map</span>
+          <h2>Start over?</h2>
+          <p>This removes every country assignment and restores the default palette.</p>
+          <div class="dialog-actions">
+            <button class="secondary-action" value="cancel">Keep editing</button>
+            <button class="danger-action" id="confirm-reset-button" value="confirm">Reset map</button>
+          </div>
+        </form>
+      </dialog>
+
+      <noscript>This tool requires JavaScript to edit and export the SVG map.</noscript>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
