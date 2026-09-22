@@ -33,6 +33,21 @@ const DEFAULT_EXPORT_OPTIONS = {
   title: "",
   titlePosition: "top",
 };
+const CSS_REFERENCE_ATTRIBUTES = new Set([
+  "clip-path",
+  "color-profile",
+  "cursor",
+  "fill",
+  "filter",
+  "marker-end",
+  "marker-mid",
+  "marker-start",
+  "mask",
+  "shape-inside",
+  "shape-subtract",
+  "stroke",
+  "style",
+]);
 
 const DISPLAY_NAME_OVERRIDES = {
   BO: "Bolivia",
@@ -111,6 +126,8 @@ let mapCatalog = [FALLBACK_MAP];
 let activeMap = FALLBACK_MAP;
 let currentMapViewBox = [0, 0, 2754, 1398];
 let currentMapDimensions = { width: 2754, height: 1398 };
+let mapSwitchRequestId = 0;
+let mapShadowRoot;
 let svgElement;
 let toastTimer;
 
@@ -259,7 +276,7 @@ async function handleMapScopeSelection(event) {
   const nextMap =
     scopedMaps.find((map) => map.title === state.mapSelections[nextScope]) || scopedMaps[0];
   renderMapPicker();
-  await switchToMap(nextMap, { previousScope });
+  await switchToMap(nextMap, { previousScope, scope: nextScope });
 }
 
 function mapsForScope(scope) {
@@ -267,9 +284,14 @@ function mapsForScope(scope) {
 }
 
 async function switchToMap(nextMap, options = {}) {
+  const requestId = ++mapSwitchRequestId;
   const previousMap = activeMap;
   const previousScope = options.previousScope || state.mapScope;
+  const requestedScope = options.scope || state.mapScope;
   elements.mapSelect.disabled = true;
+  elements.mapScopeButtons.forEach((button) => {
+    button.disabled = true;
+  });
   elements.mapLoading.hidden = false;
   elements.mapLoading.classList.remove("has-error");
   const loadingTitle = document.createElement("strong");
@@ -282,9 +304,11 @@ async function switchToMap(nextMap, options = {}) {
 
   try {
     const svgText = await fetchMapSvg(nextMap);
+    if (requestId !== mapSwitchRequestId) return;
     activeMap = nextMap;
+    state.mapScope = requestedScope;
     state.mapTitle = nextMap.title;
-    state.mapSelections[state.mapScope] = nextMap.title;
+    state.mapSelections[requestedScope] = nextMap.title;
     mountSvg(svgText);
     buildCountryIndex();
     decorateMap();
@@ -292,6 +316,7 @@ async function switchToMap(nextMap, options = {}) {
     persistState();
     showToast(`${nextMap.name} selected`);
   } catch (error) {
+    if (requestId !== mapSwitchRequestId) return;
     console.error(error);
     activeMap = previousMap;
     state.mapScope = previousScope;
@@ -299,16 +324,31 @@ async function switchToMap(nextMap, options = {}) {
     renderMapPicker();
     showToast("That map could not be loaded. Your previous map is unchanged.");
   } finally {
-    elements.mapLoading.hidden = true;
-    elements.mapSelect.disabled = mapsForScope(state.mapScope).length < 2;
-    requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
+    if (requestId === mapSwitchRequestId) {
+      elements.mapLoading.hidden = true;
+      elements.mapScopeButtons.forEach((button) => {
+        button.disabled = false;
+      });
+      elements.mapSelect.disabled = mapsForScope(state.mapScope).length < 2;
+      requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
+    }
   }
 }
 
 function restoreState() {
+  const storedState = readStoredValue(STORAGE_KEY);
+  if (storedState === null) return;
+
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!saved || !Array.isArray(saved.palette) || typeof saved.assignments !== "object") return;
+    const saved = JSON.parse(storedState);
+    if (
+      !saved ||
+      !Array.isArray(saved.palette) ||
+      !saved.assignments ||
+      typeof saved.assignments !== "object"
+    ) {
+      return;
+    }
 
     state.palette = saved.palette
       .slice(0, 8)
@@ -362,7 +402,7 @@ function restoreState() {
           : DEFAULT_EXPORT_OPTIONS.titlePosition,
     };
   } catch {
-    localStorage.removeItem(STORAGE_KEY);
+    removeStoredValue(STORAGE_KEY);
   }
 }
 
@@ -385,26 +425,91 @@ function mountSvg(svgText) {
   svgElement.setAttribute("focusable", "false");
   elements.mapFrame.style.aspectRatio = `${viewBox[2]} / ${viewBox[3]}`;
   elements.mapFrame.style.setProperty("--map-aspect", String(viewBox[2] / viewBox[3]));
-  elements.mapContainer.replaceChildren(svgElement);
+  mapShadowRoot ||= elements.mapContainer.attachShadow({ mode: "open" });
+  const mapStyles = document.createElement("style");
+  mapStyles.textContent = `
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: calc(100dvh - 270px);
+      overflow: visible;
+      filter: drop-shadow(0 14px 28px rgb(2 6 23 / 20%));
+    }
+    svg [data-country-code] {
+      cursor: pointer;
+      transition: fill 180ms ease, filter 160ms ease;
+    }
+    svg [data-country-code]:hover,
+    svg [data-country-code].is-highlighted {
+      filter: brightness(0.9) saturate(1.12) drop-shadow(0 0 3px rgb(2 6 23 / 55%));
+    }
+    svg [data-country-code].is-located {
+      animation: locate-country 900ms ease both;
+    }
+    @keyframes locate-country {
+      0%, 100% { filter: none; }
+      35% { filter: brightness(1.15) saturate(1.5) drop-shadow(0 0 10px var(--accent)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+  `;
+  mapShadowRoot.replaceChildren(svgElement, mapStyles);
 }
 
 function sanitizeSvg(svg) {
-  svg.querySelectorAll("script, foreignObject").forEach((element) => element.remove());
+  svg
+    .querySelectorAll("script, foreignObject, animate, animateTransform, animateMotion, set")
+    .forEach((element) => element.remove());
   for (const element of [svg, ...svg.querySelectorAll("*")]) {
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase();
       const value = attribute.value.trim();
       if (name.startsWith("on")) element.removeAttribute(attribute.name);
-      if (
-        (name === "href" || name === "xlink:href") &&
-        value &&
-        !value.startsWith("#") &&
-        !value.startsWith("data:")
-      ) {
+      if (name === "src" || name === "xml:base") element.removeAttribute(attribute.name);
+      if ((name === "href" || name === "xlink:href") && value && !value.startsWith("#")) {
         element.removeAttribute(attribute.name);
+      }
+      if (CSS_REFERENCE_ATTRIBUTES.has(name)) {
+        const sanitized = sanitizeCssReferences(value);
+        if (sanitized) element.setAttribute(attribute.name, sanitized);
+        else element.removeAttribute(attribute.name);
       }
     }
   }
+  svg.querySelectorAll("style").forEach((style) => {
+    const sanitized = sanitizeCssReferences(style.textContent || "");
+    if (sanitized) style.textContent = sanitized;
+    else style.remove();
+  });
+}
+
+function sanitizeCssReferences(cssText) {
+  const normalized = decodeCssEscapes(String(cssText))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  if (/@import\b/i.test(normalized)) return "";
+
+  return normalized.replace(
+    /\burl\s*\(\s*(?:(['"])(.*?)\1|([^)]*))\s*\)/gi,
+    (match, quote, quotedValue, bareValue) => {
+      const reference = String(quotedValue ?? bareValue ?? "").trim();
+      return /^#[A-Za-z_][\w:.-]*$/.test(reference) ? match : "none";
+    },
+  );
+}
+
+function decodeCssEscapes(value) {
+  return value.replace(/\\([\da-f]{1,6})\s?|\\([\s\S])/gi, (_match, hex, character) => {
+    if (!hex) return character || "";
+    const codePoint = Number.parseInt(hex, 16);
+    return codePoint > 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "\uFFFD";
+  });
 }
 
 function getSvgViewBox(svg) {
@@ -508,7 +613,7 @@ function bindStaticEvents() {
 }
 
 function restoreTheme() {
-  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  const savedTheme = readStoredValue(THEME_STORAGE_KEY);
   const preferredTheme =
     savedTheme === "dark" || savedTheme === "light"
       ? savedTheme
@@ -526,7 +631,9 @@ function setTheme(theme, options = {}) {
   elements.themeLight.setAttribute("aria-pressed", String(!dark));
   elements.themeDark.setAttribute("aria-pressed", String(dark));
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  if (options.persist !== false) localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+  if (options.persist !== false) {
+    writeStoredValue(THEME_STORAGE_KEY, dark ? "dark" : "light");
+  }
 }
 
 function toggleAppPicker() {
@@ -780,6 +887,9 @@ function renderMap() {
 }
 
 function renderCountryList() {
+  const focusedCode = elements.countryList.contains(document.activeElement)
+    ? document.activeElement.dataset.code
+    : null;
   const query = normalizeLookup(elements.countrySearch.value);
   const matches = countries
     .filter((country) => {
@@ -797,8 +907,15 @@ function renderCountryList() {
       button.className = "country-option";
       button.type = "button";
       button.dataset.code = country.alpha2;
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-label", `Color ${country.name}`);
+      const assigned = Number.isInteger(index);
+      const label = assigned
+        ? state.palette[index]?.label || `Category ${index + 1}`
+        : "uncolored";
+      button.setAttribute("aria-pressed", String(assigned));
+      button.setAttribute(
+        "aria-label",
+        `${country.name}, ${label}. Activate to ${assigned ? "change" : "assign"} color.`,
+      );
       button.innerHTML = `
         <span class="country-swatch" aria-hidden="true"></span>
         <span class="country-option-name"></span>
@@ -813,6 +930,10 @@ function renderCountryList() {
       return button;
     }),
   );
+
+  if (focusedCode) {
+    elements.countryList.querySelector(`[data-code="${focusedCode}"]`)?.focus({ preventScroll: true });
+  }
 
   elements.countryEmpty.hidden = matches.length > 0;
   elements.countryTotal.textContent = `${countries.length} available`;
@@ -990,46 +1111,65 @@ function applyImport() {
 }
 
 function parseDelimitedText(text) {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return [];
-  const sample = lines.slice(0, 5).join("\n");
-  const delimiter = chooseDelimiter(sample);
-  return lines.map((line) => parseDelimitedLine(line, delimiter));
-}
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  if (!source.trim()) return [];
 
-function chooseDelimiter(sample) {
-  const counts = [",", ";", "\t"].map((delimiter) => ({
-    delimiter,
-    count: [...sample].filter((character) => character === delimiter).length,
-  }));
-  const winner = counts.sort((a, b) => b.count - a.count)[0];
-  return winner.count ? winner.delimiter : null;
-}
-
-function parseDelimitedLine(line, delimiter) {
-  if (!delimiter) return [line.trim()];
-  const values = [];
+  const delimiter = chooseDelimiter(source);
+  const rows = [];
+  let row = [];
   let value = "";
   let quoted = false;
 
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
     if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
+      if (quoted && source[index + 1] === '"') {
         value += '"';
         index += 1;
       } else {
         quoted = !quoted;
       }
-    } else if (character === delimiter && !quoted) {
-      values.push(value.trim());
+    } else if (!quoted && delimiter && character === delimiter) {
+      row.push(value.trim());
       value = "";
+    } else if (!quoted && (character === "\n" || character === "\r")) {
+      row.push(value.trim());
+      if (row.some((cell) => cell)) rows.push(row);
+      row = [];
+      value = "";
+      if (character === "\r" && source[index + 1] === "\n") index += 1;
     } else {
       value += character;
     }
   }
-  values.push(value.trim());
-  return values;
+
+  row.push(value.trim());
+  if (row.some((cell) => cell)) rows.push(row);
+  return rows;
+}
+
+function chooseDelimiter(text) {
+  const counts = new Map([",", ";", "\t"].map((delimiter) => [delimiter, 0]));
+  let quoted = false;
+  let records = 0;
+
+  for (let index = 0; index < text.length && records < 20; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') index += 1;
+      else quoted = !quoted;
+    } else if (!quoted) {
+      if (counts.has(character)) counts.set(character, counts.get(character) + 1);
+      if (character === "\n" || character === "\r") {
+        records += 1;
+        if (character === "\r" && text[index + 1] === "\n") index += 1;
+      }
+    }
+  }
+
+  const candidates = [...counts].map(([delimiter, count]) => ({ delimiter, count }));
+  const winner = candidates.sort((a, b) => b.count - a.count)[0];
+  return winner.count ? winner.delimiter : null;
 }
 
 function detectCountryColumn(rows) {
@@ -1063,8 +1203,33 @@ function looksLikeHeader(value) {
 }
 
 function persistState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  elements.saveStatus.textContent = "Saved locally";
+  const saved = writeStoredValue(STORAGE_KEY, JSON.stringify(state));
+  elements.saveStatus.textContent = saved ? "Saved locally" : "Storage unavailable · not saved";
+}
+
+function readStoredValue(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredValue(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeStoredValue(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage may be disabled; the app can still start with its default state.
+  }
 }
 
 function resetMap() {

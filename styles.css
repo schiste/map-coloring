@@ -1080,41 +1080,6 @@ kbd {
   transform: none;
 }
 
-.map-container svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: calc(100dvh - 270px);
-  overflow: visible;
-  filter: drop-shadow(0 14px 28px rgb(2 6 23 / 20%));
-}
-
-.map-container svg [data-country-code] {
-  cursor: pointer;
-  transition:
-    fill 180ms ease,
-    filter 160ms ease;
-}
-
-.map-container svg [data-country-code]:hover,
-.map-container svg [data-country-code].is-highlighted {
-  filter: brightness(0.9) saturate(1.12) drop-shadow(0 0 3px rgb(2 6 23 / 55%));
-}
-
-.map-container svg [data-country-code].is-located {
-  animation: locate-country 900ms ease both;
-}
-
-@keyframes locate-country {
-  0%,
-  100% {
-    filter: none;
-  }
-  35% {
-    filter: brightness(1.15) saturate(1.5) drop-shadow(0 0 10px var(--accent));
-  }
-}
-
 .map-loading {
   position: absolute;
   display: flex;
