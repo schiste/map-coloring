@@ -937,6 +937,11 @@ a:focus-visible {
   background: var(--accent);
 }
 
+.primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .secondary-action {
   border: 1px solid var(--line);
   color: var(--text);
@@ -973,6 +978,43 @@ a:focus-visible {
   background: var(--surface);
   font-size: 11px;
   line-height: 1.45;
+}
+
+.import-report > strong {
+  display: block;
+}
+
+.import-category-breakdown,
+.import-issues {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.import-category-breakdown li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.import-category-swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  margin-top: 2px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.import-issues {
+  padding-left: 17px;
+  list-style: disc;
+}
+
+.import-report p {
+  margin: 8px 0 0;
 }
 
 .workspace {

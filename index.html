@@ -315,31 +315,42 @@
               </div>
 
               <p class="section-note">
-                Use one country per row or select a country column from CSV data.
+                Import a country list into one category, or use a country/category CSV to assign several categories at once. Unlisted countries keep their current colors.
+              </p>
+              <p class="section-note">
+                Category values must match legend labels. Kosovo is recognized by its common code, XK.
               </p>
 
               <label class="field" for="import-text">
-                <span>Country data</span>
+                <span>Country and category data</span>
                 <textarea
                   id="import-text"
                   rows="7"
-                  placeholder="country&#10;France&#10;DEU&#10;JP"
+                  placeholder="country,category&#10;France,Category one&#10;DEU,Category two&#10;XK,Category three"
                   spellcheck="false"
                 ></textarea>
               </label>
 
               <div class="field-group import-options">
                 <label class="field">
-                  <span>Assign to</span>
-                  <select id="import-color"></select>
-                </label>
-                <label class="field">
-                  <span>Column</span>
+                  <span>Country column</span>
                   <select id="import-column">
                     <option value="auto">Detect automatically</option>
                   </select>
                 </label>
+                <label class="field">
+                  <span>Category column</span>
+                  <select id="import-category-column">
+                    <option value="auto">Detect from header</option>
+                    <option value="none">Use one category</option>
+                  </select>
+                </label>
               </div>
+
+              <label class="field">
+                <span>One category for all rows</span>
+                <select id="import-color"></select>
+              </label>
 
               <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" hidden>
               <div class="import-actions">
@@ -349,11 +360,19 @@
                   </svg>
                   <span>Choose CSV</span>
                 </button>
-                <button class="primary-action" id="apply-import-button" type="button">
+                <button class="secondary-action" id="preview-import-button" type="button">
+                  <span>Preview</span>
+                </button>
+              </div>
+              <div class="import-actions">
+                <button class="primary-action" id="apply-import-button" type="button" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
                   </svg>
-                  <span>Apply</span>
+                  <span>Apply preview</span>
+                </button>
+                <button class="secondary-action" id="cancel-import-preview-button" type="button" hidden>
+                  <span>Cancel preview</span>
                 </button>
               </div>
               <output class="import-report" id="import-report" hidden></output>

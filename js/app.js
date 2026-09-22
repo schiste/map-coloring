@@ -90,6 +90,8 @@ const NAME_ALIASES = {
   "micronesia federated states of": "FM",
   "moldova republic of": "MD",
   "palestine state of": "PS",
+  "republic of kosovo": "XK",
+  "kosovo": "XK",
   "republic of congo": "CG",
   "republic of the congo": "CG",
   "russian federation": "RU",
@@ -104,6 +106,35 @@ const NAME_ALIASES = {
   "venezuela bolivarian republic of": "VE",
   "viet nam": "VN",
 };
+const COUNTRY_HEADER_NAMES = new Set([
+  "alpha2",
+  "alpha3",
+  "code",
+  "countries",
+  "country",
+  "country code",
+  "country iso2",
+  "country iso3",
+  "country name",
+  "iso",
+  "iso code",
+  "iso2",
+  "iso3",
+  "iso 3166 1 alpha 2",
+  "iso 3166 1 alpha 3",
+  "name",
+]);
+const CATEGORY_HEADER_NAMES = new Set([
+  "category",
+  "class",
+  "classification",
+  "color",
+  "color category",
+  "colour",
+  "colour category",
+  "group",
+  "legend",
+]);
 
 const state = {
   mapScope: "world",
@@ -130,6 +161,7 @@ let mapSwitchRequestId = 0;
 let mapShadowRoot;
 let svgElement;
 let toastTimer;
+let importPreview = null;
 
 const elements = {
   appShell: document.querySelector("#app-shell"),
@@ -166,9 +198,12 @@ const elements = {
   importText: document.querySelector("#import-text"),
   importColor: document.querySelector("#import-color"),
   importColumn: document.querySelector("#import-column"),
+  importCategoryColumn: document.querySelector("#import-category-column"),
   csvFile: document.querySelector("#csv-file"),
   chooseFileButton: document.querySelector("#choose-file-button"),
+  previewImportButton: document.querySelector("#preview-import-button"),
   applyImportButton: document.querySelector("#apply-import-button"),
+  cancelImportPreviewButton: document.querySelector("#cancel-import-preview-button"),
   importReport: document.querySelector("#import-report"),
   legendEnabled: document.querySelector("#legend-enabled"),
   legendOptions: document.querySelector("#legend-options"),
@@ -257,6 +292,7 @@ function fetchMapSvg(map) {
 async function handleMapSelection() {
   const nextMap = mapCatalog.find((map) => map.title === elements.mapSelect.value);
   if (!nextMap || nextMap.title === activeMap.title) return;
+  invalidateImportPreview();
   await switchToMap(nextMap);
 }
 
@@ -271,6 +307,7 @@ async function handleMapScopeSelection(event) {
     return;
   }
 
+  invalidateImportPreview();
   const previousScope = state.mapScope;
   state.mapScope = nextScope;
   const nextMap =
@@ -530,17 +567,19 @@ function parseSvgLength(value) {
 }
 
 function buildCountryIndex() {
-  const normalizedCountries = sourceCountries
-    .map((country) => {
-      const alpha2 = country["alpha-2"];
-      return {
-        alpha2,
-        alpha3: country["alpha-3"],
-        name: DISPLAY_NAME_OVERRIDES[alpha2] || country.name,
-        sourceName: country.name,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "en"));
+  const normalizedCountries = sourceCountries.map((country) => {
+    const alpha2 = country["alpha-2"];
+    return {
+      alpha2,
+      alpha3: country["alpha-3"],
+      name: DISPLAY_NAME_OVERRIDES[alpha2] || country.name,
+      sourceName: country.name,
+    };
+  });
+  if (!normalizedCountries.some((country) => country.alpha2 === "XK")) {
+    normalizedCountries.push({ alpha2: "XK", alpha3: "XKX", name: "Kosovo", sourceName: "Kosovo" });
+  }
+  normalizedCountries.sort((a, b) => a.name.localeCompare(b.name, "en"));
 
   allCountryByCode = new Map(normalizedCountries.map((country) => [country.alpha2, country]));
   countries = normalizedCountries
@@ -597,14 +636,28 @@ function bindStaticEvents() {
   elements.chooseFileButton.addEventListener("click", () => elements.csvFile.click());
   elements.csvFile.addEventListener("change", handleFileChoice);
   elements.importText.addEventListener("input", updateImportColumns);
+  elements.importColumn.addEventListener("change", () => {
+    invalidateImportPreview();
+    updateImportCategoryFields();
+  });
+  elements.importCategoryColumn.addEventListener("change", () => {
+    invalidateImportPreview();
+    updateImportCategoryFields();
+  });
+  elements.importColor.addEventListener("change", invalidateImportPreview);
+  elements.previewImportButton.addEventListener("click", previewImport);
   elements.applyImportButton.addEventListener("click", applyImport);
+  elements.cancelImportPreviewButton.addEventListener("click", cancelImportPreview);
   elements.legendEnabled.addEventListener("change", handleExportOptionsInput);
   elements.legendPosition.addEventListener("change", handleExportOptionsInput);
   elements.legendBackground.addEventListener("input", handleExportOptionsInput);
   elements.legendOpacity.addEventListener("input", handleExportOptionsInput);
   elements.exportTitle.addEventListener("input", handleExportOptionsInput);
   elements.titlePosition.addEventListener("change", handleExportOptionsInput);
-  elements.resetButton.addEventListener("click", () => elements.resetDialog.showModal());
+  elements.resetButton.addEventListener("click", () => {
+    invalidateImportPreview();
+    elements.resetDialog.showModal();
+  });
   elements.confirmResetButton.addEventListener("click", resetMap);
   elements.exportButton.addEventListener("click", exportSvg);
   elements.exportPngButton.addEventListener("click", exportPng);
@@ -679,7 +732,9 @@ function handleMapPointerMove(event) {
   }
 
   const country = countryByCode.get(code);
-  const index = state.assignments[code];
+  const index = importPreview?.mapPreview
+    ? importPreview.assignments.get(code) ?? state.assignments[code]
+    : state.assignments[code];
   const legend = Number.isInteger(index) ? ` · ${state.palette[index].label}` : "";
   elements.mapTooltip.textContent = `${country.name} · ${country.alpha2}${legend}`;
   elements.mapTooltip.style.left = `${event.clientX}px`;
@@ -692,6 +747,7 @@ function hideTooltip() {
 }
 
 function setCountryColor(code, index, options = {}) {
+  invalidateImportPreview();
   if (index === null) {
     delete state.assignments[code];
   } else {
@@ -994,6 +1050,7 @@ function renderStatus() {
 }
 
 function handlePaletteSizeChange() {
+  invalidateImportPreview();
   const nextSize = Number(elements.paletteSize.value);
   const previousSize = state.palette.length;
   if (nextSize > previousSize) {
@@ -1016,6 +1073,7 @@ function handlePaletteInput(event) {
   const index = Number(input.dataset.paletteIndex);
   const field = input.dataset.field;
   state.palette[index][field] = input.value;
+  invalidateImportPreview();
 
   if (field === "color") {
     for (const [code, assignedIndex] of Object.entries(state.assignments)) {
@@ -1042,72 +1100,279 @@ async function handleFileChoice() {
 }
 
 function updateImportColumns() {
+  invalidateImportPreview();
   const rows = parseDelimitedText(elements.importText.value);
   const maxColumns = Math.max(1, ...rows.slice(0, 20).map((row) => row.length));
-  const current = elements.importColumn.value;
-  const options = [{ value: "auto", label: "Detect automatically" }];
+  const currentCountryColumn = elements.importColumn.value;
+  const currentCategoryColumn = elements.importCategoryColumn.value;
+  const countryOptions = [{ value: "auto", label: "Detect automatically" }];
+  const categoryOptions = [
+    { value: "auto", label: "Detect from header" },
+    { value: "none", label: "Use one category" },
+  ];
 
   for (let index = 0; index < maxColumns; index += 1) {
     const header = rows[0]?.[index]?.trim();
-    options.push({
+    const label = header ? `Column ${index + 1}: ${header.slice(0, 24)}` : `Column ${index + 1}`;
+    countryOptions.push({
       value: String(index),
-      label: header ? `Column ${index + 1}: ${header.slice(0, 24)}` : `Column ${index + 1}`,
+      label,
     });
+    categoryOptions.push({ value: String(index), label });
   }
 
   elements.importColumn.replaceChildren(
-    ...options.map(({ value, label }) => {
+    ...countryOptions.map(({ value, label }) => {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = label;
       return option;
     }),
   );
-  elements.importColumn.value = options.some((option) => option.value === current) ? current : "auto";
+  elements.importColumn.value = countryOptions.some((option) => option.value === currentCountryColumn)
+    ? currentCountryColumn
+    : "auto";
+  elements.importCategoryColumn.replaceChildren(
+    ...categoryOptions.map(({ value, label }) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }),
+  );
+  elements.importCategoryColumn.value = categoryOptions.some(
+    (option) => option.value === currentCategoryColumn,
+  )
+    ? currentCategoryColumn
+    : "auto";
+  updateImportCategoryFields();
 }
 
-function applyImport() {
+function updateImportCategoryFields() {
+  const rows = parseDelimitedText(elements.importText.value);
+  elements.importColor.disabled = getImportCategoryColumn(rows) !== null;
+}
+
+function getImportCategoryColumn(rows) {
+  const selection = elements.importCategoryColumn.value;
+  if (selection === "none") return null;
+  if (selection === "auto") return detectCategoryColumn(rows);
+  const column = Number(selection);
+  return Number.isInteger(column) && column >= 0 ? column : null;
+}
+
+function invalidateImportPreview() {
+  if (importPreview?.mapPreview) {
+    for (const code of importPreview.assignments.keys()) paintCountry(code);
+  }
+  importPreview = null;
+  elements.applyImportButton.disabled = true;
+  elements.cancelImportPreviewButton.hidden = true;
+  elements.importReport.hidden = true;
+  elements.importReport.replaceChildren();
+}
+
+function cancelImportPreview() {
+  invalidateImportPreview();
+  showToast("CSV preview canceled");
+}
+
+function previewImport() {
+  invalidateImportPreview();
   const rows = parseDelimitedText(elements.importText.value);
   if (!rows.length) {
-    showToast("Paste country data or choose a CSV first.");
+    importPreview = { assignments: new Map(), issues: ["Paste country data or choose a CSV first."], duplicates: 0 };
+    renderImportPreview(importPreview);
     return;
   }
 
+  const categoryColumn = getImportCategoryColumn(rows);
   const requestedColumn =
-    elements.importColumn.value === "auto" ? detectCountryColumn(rows) : Number(elements.importColumn.value);
+    elements.importColumn.value === "auto"
+      ? detectCountryColumn(rows, categoryColumn)
+      : Number(elements.importColumn.value);
   const targetIndex = Number(elements.importColor.value);
-  const matched = new Set();
-  const unresolved = [];
+  const assignments = new Map();
+  const issues = [];
+  const conflicts = new Set();
+  let duplicates = 0;
+  const headerRow = looksLikeHeader(rows[0]?.[requestedColumn]) ||
+    (categoryColumn !== null && looksLikeCategoryHeader(rows[0]?.[categoryColumn]));
+  const firstDataRow = headerRow ? 1 : 0;
 
-  rows.forEach((row, rowIndex) => {
-    const raw = row[requestedColumn]?.trim();
-    if (!raw) return;
-    const code = resolveCountry(raw);
-    if (code) {
-      matched.add(code);
-    } else if (!(rowIndex === 0 && looksLikeHeader(raw))) {
-      unresolved.push(raw);
+  if (categoryColumn !== null && categoryColumn === requestedColumn) {
+    issues.push("Choose different columns for country and category.");
+  }
+
+  for (let rowIndex = firstDataRow; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+    const recordNumber = rowIndex + 1;
+    const rawCountry = row[requestedColumn]?.trim();
+    const rawCategory = categoryColumn === null ? "" : row[categoryColumn]?.trim();
+    if (!rawCountry && !rawCategory) continue;
+    if (!rawCountry) {
+      issues.push(`Record ${recordNumber} has a category but no country.`);
+      continue;
     }
-  });
 
-  for (const code of matched) {
-    state.assignments[code] = targetIndex;
+    const code = resolveCountry(rawCountry);
+    if (!code) {
+      issues.push(`Record ${recordNumber}: country “${rawCountry}” was not recognized.`);
+      continue;
+    }
+
+    let categoryIndex = targetIndex;
+    if (categoryColumn !== null) {
+      if (!rawCategory) {
+        issues.push(`Record ${recordNumber}: category is empty for ${rawCountry}.`);
+        continue;
+      }
+      const categoryMatch = resolveCategory(rawCategory);
+      if (categoryMatch.error) {
+        issues.push(`Record ${recordNumber}: ${categoryMatch.error} (“${rawCategory}”).`);
+        continue;
+      }
+      categoryIndex = categoryMatch.index;
+    }
+
+    if (!state.palette[categoryIndex]) {
+      issues.push(`Record ${recordNumber}: the selected category is unavailable.`);
+      continue;
+    }
+    if (assignments.has(code)) {
+      if (assignments.get(code) !== categoryIndex) {
+        if (!conflicts.has(code)) {
+          const countryName = allCountryByCode.get(code)?.name || rawCountry;
+          issues.push(`${countryName} is assigned to more than one category.`);
+          conflicts.add(code);
+        }
+      } else {
+        duplicates += 1;
+      }
+      continue;
+    }
+    assignments.set(code, categoryIndex);
+  }
+
+  if (!rows.slice(firstDataRow).some((row) => row[requestedColumn]?.trim())) {
+    issues.push("No country rows were found in the selected column.");
+  }
+  importPreview = { assignments, issues, duplicates };
+  renderImportPreview(importPreview);
+}
+
+function resolveCategory(value) {
+  const normalized = normalizeLookup(value);
+  const labelMatches = state.palette
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => normalizeLookup(item.label) === normalized);
+  const matches = labelMatches.length
+    ? labelMatches
+    : state.palette
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.color.toLowerCase() === value.trim().toLowerCase());
+
+  if (!matches.length) return { error: "No legend label matches", index: null };
+  if (matches.length > 1) return { error: "More than one legend category matches", index: null };
+  return { error: null, index: matches[0].index };
+}
+
+function renderImportPreview(preview, { applied = false } = {}) {
+  const report = elements.importReport;
+  report.replaceChildren();
+  const status = document.createElement("strong");
+  const categoryGroups = new Map();
+
+  for (const [code, index] of preview.assignments) {
+    if (!categoryGroups.has(index)) categoryGroups.set(index, []);
+    categoryGroups.get(index).push(allCountryByCode.get(code)?.name || code);
+  }
+
+  const countryCount = preview.assignments.size;
+  const categoryCount = categoryGroups.size;
+  status.textContent = applied
+    ? `${countryCount} ${countryCount === 1 ? "country" : "countries"} assigned across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`
+    : preview.issues.length
+      ? `Preview blocked · ${preview.issues.length} ${preview.issues.length === 1 ? "issue" : "issues"} to fix.`
+      : `${countryCount} ${countryCount === 1 ? "country" : "countries"} ready across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`;
+  report.append(status);
+
+  if (categoryGroups.size) {
+    const list = document.createElement("ul");
+    list.className = "import-category-breakdown";
+    for (const [index, names] of categoryGroups) {
+      const item = document.createElement("li");
+      const swatch = document.createElement("span");
+      swatch.className = "import-category-swatch";
+      swatch.style.backgroundColor = state.palette[index].color;
+      swatch.setAttribute("aria-hidden", "true");
+      const description = document.createElement("span");
+      const sample = names.slice(0, 3).join(", ");
+      const remainder = names.length - Math.min(names.length, 3);
+      description.textContent = `${state.palette[index].label}: ${names.length} · ${sample}${
+        remainder ? `, and ${remainder} more` : ""
+      }`;
+      item.append(swatch, description);
+      list.append(item);
+    }
+    report.append(list);
+  }
+
+  if (preview.duplicates) {
+    const duplicates = document.createElement("p");
+    duplicates.textContent = `${preview.duplicates} repeated row${preview.duplicates === 1 ? "" : "s"} with the same assignment will be merged.`;
+    report.append(duplicates);
+  }
+
+  if (preview.issues.length) {
+    const issueList = document.createElement("ul");
+    issueList.className = "import-issues";
+    for (const issue of preview.issues.slice(0, 8)) {
+      const item = document.createElement("li");
+      item.textContent = issue;
+      issueList.append(item);
+    }
+    if (preview.issues.length > 8) {
+      const item = document.createElement("li");
+      item.textContent = `And ${preview.issues.length - 8} more issues.`;
+      issueList.append(item);
+    }
+    report.append(issueList);
+  }
+
+  report.hidden = false;
+  elements.applyImportButton.disabled =
+    applied || preview.issues.length > 0 || preview.assignments.size === 0;
+  elements.cancelImportPreviewButton.hidden =
+    applied || preview.issues.length > 0 || preview.assignments.size === 0;
+
+  if (!applied && !preview.issues.length && preview.assignments.size) {
+    preview.mapPreview = true;
+    for (const [code, index] of preview.assignments) {
+      for (const shape of findCountryShapes(code)) {
+        shape.style.setProperty("fill", state.palette[index].color, "important");
+      }
+    }
+  }
+}
+
+function applyImport() {
+  if (!importPreview || importPreview.issues.length || !importPreview.assignments.size) {
+    showToast("Preview a valid CSV before applying it.");
+    return;
+  }
+
+  for (const [code, categoryIndex] of importPreview.assignments) {
+    state.assignments[code] = categoryIndex;
     paintCountry(code);
   }
+  const appliedPreview = importPreview;
+  importPreview = null;
   renderStatus();
   renderCountryList();
   persistState();
-
-  const unresolvedMessage = unresolved.length
-    ? ` ${unresolved.length} not recognized: ${unresolved.slice(0, 5).join(", ")}${
-        unresolved.length > 5 ? "…" : ""
-      }`
-    : "";
-  elements.importReport.textContent = `${matched.size} ${
-    matched.size === 1 ? "country" : "countries"
-  } assigned to “${state.palette[targetIndex].label}”.${unresolvedMessage}`;
-  elements.importReport.hidden = false;
-  if (matched.size) showToast(`${matched.size} countries added`);
+  renderImportPreview(appliedPreview, { applied: true });
+  showToast(`${appliedPreview.assignments.size} countries assigned`);
 }
 
 function parseDelimitedText(text) {
@@ -1172,16 +1437,23 @@ function chooseDelimiter(text) {
   return winner.count ? winner.delimiter : null;
 }
 
-function detectCountryColumn(rows) {
+function detectCountryColumn(rows, excludedColumn = null) {
   const maxColumns = Math.max(...rows.slice(0, 30).map((row) => row.length));
   let best = { index: 0, score: -1 };
   for (let index = 0; index < maxColumns; index += 1) {
+    if (index === excludedColumn) continue;
     const score = rows
       .slice(0, 30)
       .reduce((total, row) => total + (resolveCountry(row[index] || "") ? 1 : 0), 0);
     if (score > best.score) best = { index, score };
   }
   return best.index;
+}
+
+function detectCategoryColumn(rows) {
+  const index =
+    rows[0]?.findIndex((header) => CATEGORY_HEADER_NAMES.has(normalizeLookup(header))) ?? -1;
+  return index < 0 ? null : index;
 }
 
 function resolveCountry(value) {
@@ -1199,7 +1471,11 @@ function normalizeLookup(value) {
 }
 
 function looksLikeHeader(value) {
-  return /^(country|country name|name|iso|iso code|iso2|iso3|code)$/i.test(value.trim());
+  return COUNTRY_HEADER_NAMES.has(normalizeLookup(value));
+}
+
+function looksLikeCategoryHeader(value) {
+  return CATEGORY_HEADER_NAMES.has(normalizeLookup(value));
 }
 
 function persistState() {
@@ -1242,11 +1518,13 @@ function resetMap() {
 }
 
 function exportSvg() {
+  if (hasPendingMapPreview()) return;
   downloadBlob(createExportSvg(), "maphue-world-map.svg", "image/svg+xml;charset=utf-8");
   showToast("SVG exported");
 }
 
 async function exportPng() {
+  if (hasPendingMapPreview()) return;
   await runRasterExport(elements.exportPngButton, async () => {
     const canvas = await renderExportCanvas();
     const png = await canvasToBlob(canvas, "image/png");
@@ -1256,6 +1534,7 @@ async function exportPng() {
 }
 
 async function exportPdf() {
+  if (hasPendingMapPreview()) return;
   await runRasterExport(elements.exportPdfButton, async () => {
     const canvas = await renderExportCanvas();
     const jpegBlob = await canvasToBlob(canvas, "image/jpeg", 0.94);
@@ -1264,6 +1543,12 @@ async function exportPdf() {
     downloadBlob(pdfBytes, "maphue-world-map.pdf", "application/pdf");
     showToast("PDF exported");
   });
+}
+
+function hasPendingMapPreview() {
+  if (!importPreview?.mapPreview) return false;
+  showToast("Apply or cancel the CSV preview before exporting.");
+  return true;
 }
 
 function createExportSvg() {
@@ -1473,6 +1758,7 @@ function addTitleToSvg(svg) {
 }
 
 function exportAssignmentsCsv() {
+  if (hasPendingMapPreview()) return;
   const rows = [["country", "iso2", "iso3", "legend", "color"]];
   const assignments = Object.entries(state.assignments).filter(([code, index]) => {
     return allCountryByCode.has(code) && state.palette[index];

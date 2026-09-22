@@ -15,6 +15,8 @@ The application has no build step, no runtime dependencies, and sends no map dat
 - Read each map's short Commons description and open its source page
 - Search by English name, ISO 3166-1 alpha-2, or alpha-3 code
 - Import pasted text or CSV data with automatic country-column detection
+- Assign multiple legend categories in one CSV import with a color-coded map preview and validation
+- Recognize Kosovo by name, `XK`, or the common `XKX` code
 - Edit colors and legend labels with live map updates
 - Place the export legend in nine positions with a custom background color and transparency
 - Add an optional centered title above or below the map
