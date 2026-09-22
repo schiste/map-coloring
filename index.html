@@ -349,7 +349,10 @@
 
               <label class="field">
                 <span>One category for all rows</span>
-                <select id="import-color"></select>
+                <select id="import-color" aria-describedby="import-color-help"></select>
+                <small class="field-help" id="import-color-help">
+                  Used for every row when no category column is selected.
+                </small>
               </label>
 
               <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" hidden>
@@ -381,7 +384,12 @@
           </div>
         </aside>
 
-        <main class="workspace" id="workspace-preview" aria-label="Map preview and export">
+        <main
+          class="workspace"
+          id="workspace-preview"
+          tabindex="-1"
+          aria-label="Map preview and export"
+        >
           <div class="workspace-toolbar">
             <div>
               <span class="toolbar-label" id="active-map-name">Interactive world map</span>

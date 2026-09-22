@@ -108,15 +108,26 @@ const NAME_ALIASES = {
 };
 const COUNTRY_HEADER_NAMES = new Set([
   "alpha2",
+  "alpha 2",
   "alpha3",
+  "alpha 3",
   "code",
   "countries",
   "country",
+  "country alpha2",
+  "country alpha 2",
+  "country alpha3",
+  "country alpha 3",
   "country code",
+  "country id",
   "country iso2",
   "country iso3",
   "country name",
   "iso",
+  "iso alpha2",
+  "iso alpha 2",
+  "iso alpha3",
+  "iso alpha 3",
   "iso code",
   "iso2",
   "iso3",
@@ -197,6 +208,7 @@ const elements = {
   paletteList: document.querySelector("#palette-list"),
   importText: document.querySelector("#import-text"),
   importColor: document.querySelector("#import-color"),
+  importColorHelp: document.querySelector("#import-color-help"),
   importColumn: document.querySelector("#import-column"),
   importCategoryColumn: document.querySelector("#import-category-column"),
   csvFile: document.querySelector("#csv-file"),
@@ -1150,7 +1162,11 @@ function updateImportColumns() {
 
 function updateImportCategoryFields() {
   const rows = parseDelimitedText(elements.importText.value);
-  elements.importColor.disabled = getImportCategoryColumn(rows) !== null;
+  const hasCategoryColumn = getImportCategoryColumn(rows) !== null;
+  elements.importColor.disabled = hasCategoryColumn;
+  elements.importColorHelp.textContent = hasCategoryColumn
+    ? "A category column is selected above. Choose “Use one category” to enable this selector."
+    : "Used for every row when no category column is selected.";
 }
 
 function getImportCategoryColumn(rows) {

@@ -407,6 +407,12 @@ a:focus-visible {
   font: inherit;
 }
 
+.section-select select:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -451,6 +457,12 @@ a:focus-visible {
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .field input,
@@ -1429,6 +1441,12 @@ dialog p {
     right: 12px;
     bottom: 10px;
     left: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .import-options {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
