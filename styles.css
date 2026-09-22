@@ -753,9 +753,9 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
-.legend-background-controls {
+.legend-style-controls {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 76px 76px minmax(0, 1fr);
   align-items: end;
   gap: 12px;
 }

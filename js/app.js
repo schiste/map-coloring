@@ -29,6 +29,7 @@ const DEFAULT_EXPORT_OPTIONS = {
   legendEnabled: true,
   legendPosition: "bottom-left",
   legendBackground: "#fffefa",
+  legendTextColor: "#18211d",
   legendOpacity: 1,
   title: "",
   titlePosition: "top",
@@ -221,6 +222,7 @@ const elements = {
   legendOptions: document.querySelector("#legend-options"),
   legendPosition: document.querySelector("#legend-position"),
   legendBackground: document.querySelector("#legend-background"),
+  legendTextColor: document.querySelector("#legend-text-color"),
   legendOpacity: document.querySelector("#legend-opacity"),
   legendOpacityValue: document.querySelector("#legend-opacity-value"),
   exportTitle: document.querySelector("#export-title"),
@@ -430,6 +432,9 @@ function restoreState() {
       state.mapSelections.world = state.mapTitle;
     }
     const savedExportOptions = saved.exportOptions || {};
+    const savedLegendBackground = validHex(savedExportOptions.legendBackground)
+      ? savedExportOptions.legendBackground
+      : DEFAULT_EXPORT_OPTIONS.legendBackground;
     state.exportOptions = {
       legendEnabled:
         typeof savedExportOptions.legendEnabled === "boolean"
@@ -438,9 +443,10 @@ function restoreState() {
       legendPosition: LEGEND_POSITIONS.includes(savedExportOptions.legendPosition)
         ? savedExportOptions.legendPosition
         : DEFAULT_EXPORT_OPTIONS.legendPosition,
-      legendBackground: validHex(savedExportOptions.legendBackground)
-        ? savedExportOptions.legendBackground
-        : DEFAULT_EXPORT_OPTIONS.legendBackground,
+      legendBackground: savedLegendBackground,
+      legendTextColor: validHex(savedExportOptions.legendTextColor)
+        ? savedExportOptions.legendTextColor
+        : readableTextColor(savedLegendBackground),
       legendOpacity: Number.isFinite(savedExportOptions.legendOpacity)
         ? Math.min(1, Math.max(0, savedExportOptions.legendOpacity))
         : DEFAULT_EXPORT_OPTIONS.legendOpacity,
@@ -663,6 +669,7 @@ function bindStaticEvents() {
   elements.legendEnabled.addEventListener("change", handleExportOptionsInput);
   elements.legendPosition.addEventListener("change", handleExportOptionsInput);
   elements.legendBackground.addEventListener("input", handleExportOptionsInput);
+  elements.legendTextColor.addEventListener("input", handleExportOptionsInput);
   elements.legendOpacity.addEventListener("input", handleExportOptionsInput);
   elements.exportTitle.addEventListener("input", handleExportOptionsInput);
   elements.titlePosition.addEventListener("change", handleExportOptionsInput);
@@ -848,6 +855,7 @@ function renderExportOptions() {
   );
   if (selectedPosition) selectedPosition.checked = true;
   elements.legendBackground.value = options.legendBackground;
+  elements.legendTextColor.value = options.legendTextColor;
   const transparency = Math.round((1 - options.legendOpacity) * 100);
   elements.legendOpacity.value = String(transparency);
   elements.legendOpacityValue.textContent = `${transparency}%`;
@@ -864,6 +872,8 @@ function handleExportOptionsInput(event) {
     exportOptions.legendPosition = event.target.value;
   } else if (event.target === elements.legendBackground) {
     exportOptions.legendBackground = elements.legendBackground.value;
+  } else if (event.target === elements.legendTextColor) {
+    exportOptions.legendTextColor = elements.legendTextColor.value;
   } else if (event.target === elements.legendOpacity) {
     exportOptions.legendOpacity = 1 - Number(elements.legendOpacity.value) / 100;
     elements.legendOpacityValue.textContent = `${elements.legendOpacity.value}%`;
@@ -1684,7 +1694,8 @@ function addLegendToSvg(svg) {
           : 0,
     },
   );
-  const textColor = readableTextColor(state.exportOptions.legendBackground);
+  const textColor = state.exportOptions.legendTextColor;
+  const borderColor = readableTextColor(state.exportOptions.legendBackground);
   const legend = document.createElementNS(namespace, "g");
   legend.setAttribute("id", "maphue-legend");
   legend.setAttribute("transform", `translate(${position.x} ${position.y}) scale(${scale})`);
@@ -1696,7 +1707,7 @@ function addLegendToSvg(svg) {
   backdrop.setAttribute("rx", "12");
   backdrop.setAttribute("fill", state.exportOptions.legendBackground);
   backdrop.setAttribute("fill-opacity", String(state.exportOptions.legendOpacity));
-  backdrop.setAttribute("stroke", textColor);
+  backdrop.setAttribute("stroke", borderColor);
   backdrop.setAttribute("stroke-opacity", String(state.exportOptions.legendOpacity));
   backdrop.setAttribute("stroke-width", "2");
   legend.append(backdrop);
