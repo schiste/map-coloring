@@ -1465,8 +1465,8 @@ dialog p {
 /* Generated maps keep the first choice simple and group less common settings. */
 .generated-map-options {
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: 9px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
@@ -1477,11 +1477,12 @@ dialog p {
   gap: 5px;
 }
 
-.mapgen-kicker {
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
+.mapgen-intro h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 780;
+  letter-spacing: -0.02em;
 }
 
 .mapgen-intro p,
@@ -1496,8 +1497,8 @@ dialog p {
 
 .mapgen-area-picker {
   display: grid;
-  gap: 9px;
-  padding-top: 13px;
+  gap: 7px;
+  padding-top: 9px;
   border-top: 1px solid var(--line-soft);
 }
 
@@ -1529,6 +1530,52 @@ dialog p {
 
 .mapgen-search-field {
   margin: 0;
+}
+
+.mapgen-region-browser {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.mapgen-region-browser > summary {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 680;
+  list-style: none;
+}
+
+.mapgen-region-browser > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mapgen-region-browser > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.mapgen-region-browser[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.mapgen-region-browser[open] > summary::after {
+  content: "−";
+}
+
+.mapgen-region-total {
+  color: var(--muted-strong);
+  font-size: 9px;
+  font-weight: 600;
 }
 
 .mapgen-selected-regions {
@@ -1565,12 +1612,10 @@ dialog p {
 
 .mapgen-region-list {
   display: grid;
-  max-height: 168px;
+  max-height: 126px;
   gap: 2px;
   overflow: auto;
   padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
   background: var(--surface-strong);
   scrollbar-color: var(--muted-strong) transparent;
   scrollbar-width: thin;
@@ -1624,55 +1669,54 @@ dialog p {
   font-size: 11px;
 }
 
-.mapgen-appearance {
-  padding-block: 1px;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.mapgen-appearance > summary {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 740;
-  list-style: none;
-}
-
-.mapgen-appearance > summary::-webkit-details-marker {
-  display: none;
-}
-
-.mapgen-appearance > summary::after {
-  content: "+";
-  margin-left: auto;
-  color: var(--accent);
-  font-size: 16px;
-}
-
-.mapgen-appearance[open] > summary::after {
-  content: "−";
-}
-
-.mapgen-appearance > summary span {
-  color: var(--muted-strong);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.mapgen-appearance-fields {
+.mapgen-settings {
   display: grid;
-  gap: 10px;
-  padding: 2px 0 12px;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.mapgen-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mapgen-settings-heading h3 {
+  margin: 0 0 3px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.mapgen-settings-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.mapgen-settings-count {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-strong);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.mapgen-settings-fields {
+  display: grid;
+  gap: 7px;
 }
 
 .mapgen-create-area {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 @media (min-width: 1024px) {
@@ -1681,7 +1725,7 @@ dialog p {
     z-index: 3;
     bottom: 0;
     margin-inline: -6px;
-    padding: 10px 6px 4px;
+    padding: 7px 6px 4px;
     border-top: 1px solid var(--line-soft);
     background: var(--surface);
     box-shadow: 0 -6px 14px rgb(2 6 23 / 6%);
@@ -1689,6 +1733,7 @@ dialog p {
 }
 
 .mapgen-create-area small {
+  font-size: 10px;
   text-align: center;
 }
 
@@ -1715,7 +1760,7 @@ dialog p {
 
 .mapgen-create-button {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
 }
 
 .mapgen-status {
@@ -1801,30 +1846,51 @@ dialog p {
   }
 }
 
-/* Map settings built from Map Generator's render options */
+/* Use Map Generator's categories as visible headings; keep every setting in flow. */
 .mapgen-option-group {
   display: grid;
-  gap: 10px;
+  gap: 0;
   min-width: 0;
   margin: 0;
-  padding: 10px 0 2px;
+  padding: 11px 0 2px;
   border: 0;
   border-top: 1px solid var(--line-soft);
 }
 
 .mapgen-option-group:first-child {
-  border-top: 0;
   padding-top: 2px;
+  border-top: 0;
 }
 
-.mapgen-option-group > legend {
+.mapgen-group-legend {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
   padding: 0;
-  margin-bottom: 4px;
+  margin: 0 0 9px;
+  color: var(--text);
+}
+
+.mapgen-group-name {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.mapgen-group-meta {
+  flex: 0 0 auto;
   color: var(--muted-strong);
-  font-size: 10px;
-  font-weight: 740;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.mapgen-group-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
 }
 
 .mapgen-option[hidden] {
@@ -1832,39 +1898,99 @@ dialog p {
 }
 
 .check-field.mapgen-option {
-  flex-wrap: wrap;
-  row-gap: 2px;
+  grid-column: 1 / -1;
+  align-items: flex-start;
 }
 
-.check-field.mapgen-option > .field-help {
-  flex-basis: 100%;
-  padding-left: 25px;
+.mapgen-check-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mapgen-option > label:first-child {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mapgen-option:has(textarea),
+.mapgen-option:has(.mapgen-bbox-control),
+.mapgen-option:has(.mapgen-token-control),
+.mapgen-option:has(.mapgen-pair-control) {
+  grid-column: 1 / -1;
 }
 
 .mapgen-option .field-help {
   font-weight: 500;
 }
 
-.mapgen-option-advanced {
+.mapgen-bbox-control,
+.mapgen-token-control {
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
-.mapgen-option-advanced > summary {
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
+.mapgen-pair-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
 }
 
-.mapgen-option-advanced[open] > summary {
-  margin-bottom: 8px;
+.mapgen-token-list {
+  display: flex;
+  min-height: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.mapgen-token-list:empty {
+  display: none;
+}
+
+.mapgen-token-chip {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--accent-soft);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.mapgen-token-chip button {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.mapgen-token-chip button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .mapgen-color-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 10px;
+}
+
+@media (max-width: 640px) {
+  .mapgen-group-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .mapgen-color {

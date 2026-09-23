@@ -128,9 +128,9 @@
 
               <div class="generated-map-options" id="generated-map-options" hidden>
                 <div class="mapgen-intro">
-                  <span class="mapgen-kicker">CUSTOM MAP</span>
-                  <p>Choose public boundaries and one or more areas. Your current map stays on the canvas until the new map is ready.</p>
-                  <small>Map geometry is requested from Map Generator. Your colors and imported CSV stay in this browser.</small>
+                  <h3 id="mapgen-builder-heading">Create a blank map</h3>
+                  <p>Choose a dataset and areas, then style the map for your project.</p>
+                  <small>Boundaries from Map Generator; coloring and imports stay local.</small>
                 </div>
                 <label class="field" for="mapgen-dataset">
                   <span>Boundary dataset</span>
@@ -151,15 +151,27 @@
                     <input id="mapgen-region-search" type="search" autocomplete="off" placeholder="Search areas…" disabled>
                   </label>
                   <div class="mapgen-selected-regions" id="mapgen-selected-regions" aria-label="Selected areas" aria-live="polite"></div>
-                  <div class="mapgen-region-list" id="mapgen-region-list" role="group" aria-label="Available map areas"></div>
+                  <details class="mapgen-region-browser" id="mapgen-region-browser">
+                    <summary>
+                      <span>Browse available areas</span>
+                      <span class="mapgen-region-total" id="mapgen-region-total">Loading…</span>
+                    </summary>
+                    <div class="mapgen-region-list" id="mapgen-region-list" role="group" aria-label="Available map areas"></div>
+                  </details>
                   <p class="mapgen-region-empty" id="mapgen-region-empty" role="status" hidden>No matching areas. Try another name or code.</p>
                 </section>
-                <details class="mapgen-appearance">
-                  <summary>Map settings <span>Optional</span></summary>
-                  <div class="mapgen-appearance-fields" id="mapgen-options">
+                <section class="mapgen-settings" aria-labelledby="mapgen-settings-heading">
+                  <div class="mapgen-settings-heading">
+                    <div>
+                      <h3 id="mapgen-settings-heading">Shape your map</h3>
+                      <p>All available controls, grouped by purpose.</p>
+                    </div>
+                    <span class="mapgen-settings-count" id="mapgen-settings-count">Loading…</span>
+                  </div>
+                  <div class="mapgen-settings-fields" id="mapgen-options">
                     <p class="field-help">Loading the settings Map Generator offers…</p>
                   </div>
-                </details>
+                </section>
                 <div class="mapgen-create-area">
                   <button class="primary-action mapgen-create-button" id="mapgen-create-button" type="button" disabled>
                     <span>Create and use map</span>

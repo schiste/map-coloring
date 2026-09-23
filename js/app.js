@@ -243,11 +243,14 @@ const elements = {
   generatedMapOptions: document.querySelector("#generated-map-options"),
   mapgenDataset: document.querySelector("#mapgen-dataset"),
   mapgenRegionSearch: document.querySelector("#mapgen-region-search"),
+  mapgenRegionBrowser: document.querySelector("#mapgen-region-browser"),
+  mapgenRegionTotal: document.querySelector("#mapgen-region-total"),
   mapgenRegionList: document.querySelector("#mapgen-region-list"),
   mapgenSelectedRegions: document.querySelector("#mapgen-selected-regions"),
   mapgenSelectionCount: document.querySelector("#mapgen-selection-count"),
   mapgenRegionEmpty: document.querySelector("#mapgen-region-empty"),
   mapgenOptions: document.querySelector("#mapgen-options"),
+  mapgenSettingsCount: document.querySelector("#mapgen-settings-count"),
   mapgenCreateButton: document.querySelector("#mapgen-create-button"),
   mapgenStatus: document.querySelector("#mapgen-status"),
   shareAlikeNote: document.querySelector("#share-alike-note"),
@@ -556,6 +559,7 @@ async function loadMapgenRegions(datasetId, preferredRegions) {
   const regions = collectionFrom(await api.regions(datasetId), "regions");
   if (requestId !== mapgenRegionRequestId || elements.mapgenDataset.value !== datasetId) return;
   mapgenRegions = regions;
+  elements.mapgenRegionTotal.textContent = `${regions.length} areas`;
   const dataset = mapgenDatasets.find((item) => item.id === datasetId);
   const defaults = preferredRegions === undefined
     ? (dataset?.world ? ["world"] : [])
@@ -642,6 +646,7 @@ function renderMapgenOptions(dataset, spec = null) {
     themeColors: mapgenThemes[theme] || {},
     colors: previous ? previous.colors : spec?.colors || {},
   });
+  elements.mapgenSettingsCount.textContent = `${mapgenModel.groups.length} sections · ${mapgenModel.options.length + mapgenModel.colorSlots.length} controls`;
 }
 
 function renderMapgenOptionsForDataset(dataset) {
@@ -660,6 +665,48 @@ function renderMapgenOptionsForDataset(dataset) {
   } else {
     setGeneratedStatus(provenance || "");
   }
+}
+
+function mapgenTokenValues(container, name) {
+  const wrapper = [...container.querySelectorAll("[data-token-control]")].find((item) => item.dataset.tokenControl === name);
+  const stored = wrapper?.querySelector("input[type='hidden'][data-option]");
+  return String(stored?.value || "").split(/[,;\n]/).map((value) => value.trim()).filter(Boolean);
+}
+
+function renderMapgenTokens(container, name, values) {
+  const wrapper = [...container.querySelectorAll("[data-token-control]")].find((item) => item.dataset.tokenControl === name);
+  if (!wrapper) return;
+  const stored = wrapper.querySelector("input[type='hidden'][data-option]");
+  const chips = wrapper.querySelector("[data-token-list]");
+  const unique = [...new Map(values.map((value) => [value.toLocaleLowerCase(), value])).values()];
+  stored.value = unique.join(", ");
+  chips.replaceChildren(...unique.map((value) => {
+    const chip = document.createElement("span");
+    chip.className = "mapgen-token-chip";
+    chip.setAttribute("role", "listitem");
+    const label = document.createElement("span");
+    label.textContent = value;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.dataset.removeMapgenToken = name;
+    remove.dataset.tokenValue = value;
+    remove.setAttribute("aria-label", `Remove ${value}`);
+    const icon = document.createElement("span");
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "×";
+    remove.append(icon);
+    chip.append(label, remove);
+    return chip;
+  }));
+  if (mapgenModel) updateVisibility(container, mapgenModel);
+}
+
+function commitMapgenTokenEntry(input) {
+  const additions = String(input.value || "").split(/[,;\n]/).map((value) => value.trim()).filter(Boolean);
+  if (!additions.length) return;
+  const name = input.dataset.tokenEntry;
+  renderMapgenTokens(elements.mapgenOptions, name, [...mapgenTokenValues(elements.mapgenOptions, name), ...additions]);
+  input.value = "";
 }
 
 function setGeneratedStatus(message, isError = false) {
@@ -1059,7 +1106,10 @@ function bindStaticEvents() {
       }
     });
   });
-  elements.mapgenRegionSearch.addEventListener("input", renderMapgenRegionChoices);
+  elements.mapgenRegionSearch.addEventListener("input", () => {
+    if (elements.mapgenRegionSearch.value.trim()) elements.mapgenRegionBrowser.open = true;
+    renderMapgenRegionChoices();
+  });
   elements.mapgenRegionList.addEventListener("change", (event) => {
     const checkbox = event.target.closest("input[data-region-code]");
     if (!checkbox) return;
@@ -1082,12 +1132,46 @@ function bindStaticEvents() {
     selectedMapgenRegions.delete(removeButton.dataset.removeMapgenRegion);
     syncMapgenRegionSelection();
   });
+  elements.mapgenOptions.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-mapgen-token]");
+    if (!removeButton) return;
+    const name = removeButton.dataset.removeMapgenToken;
+    const value = removeButton.dataset.tokenValue;
+    renderMapgenTokens(elements.mapgenOptions, name, mapgenTokenValues(elements.mapgenOptions, name).filter((token) => token !== value));
+  });
+  elements.mapgenOptions.addEventListener("keydown", (event) => {
+    const input = event.target.closest("input[data-token-entry]");
+    if (!input) return;
+    if (["Enter", ",", ";"].includes(event.key)) {
+      event.preventDefault();
+      commitMapgenTokenEntry(input);
+    } else if (event.key === "Backspace" && !input.value) {
+      const name = input.dataset.tokenEntry;
+      const values = mapgenTokenValues(elements.mapgenOptions, name);
+      if (values.length) {
+        event.preventDefault();
+        renderMapgenTokens(elements.mapgenOptions, name, values.slice(0, -1));
+      }
+    }
+  });
+  elements.mapgenOptions.addEventListener("focusout", (event) => {
+    const input = event.target.closest("input[data-token-entry]");
+    if (input?.value.trim()) commitMapgenTokenEntry(input);
+  });
   elements.mapgenOptions.addEventListener("input", (event) => {
     if (event.target.matches?.("input[data-color-slot]")) event.target.dataset.changed = "true";
     if (mapgenModel) updateVisibility(elements.mapgenOptions, mapgenModel);
   });
   elements.mapgenOptions.addEventListener("change", (event) => {
     if (!mapgenModel) return;
+    if (event.target.matches?.("select[data-bbox-preset]")) {
+      const custom = [...elements.mapgenOptions.querySelectorAll("[data-bbox-custom]")]
+        .find((input) => input.dataset.bboxCustom === event.target.dataset.bboxPreset);
+      if (custom) {
+        custom.hidden = event.target.value !== "__custom__";
+        if (custom.hidden) custom.value = "";
+      }
+    }
     if (event.target.dataset?.option === "theme") {
       applyThemeColors(elements.mapgenOptions, mapgenModel, mapgenThemes[event.target.value || "wikimedia"] || {});
     }
@@ -2436,4 +2520,3 @@ function showToast(message) {
     elements.toast.hidden = true;
   }, 2_600);
 }
-

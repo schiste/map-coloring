@@ -49,18 +49,25 @@ export function validDescription(payload) {
  */
 export function formModel(description, { themes = null, bboxPresets = null } = {}) {
   const groups = [...(description.groups || [])].sort((a, b) => a.order - b.order);
+  const colorSlots = description.colorSlots || [];
   const options = description.options
     .filter((o) => !HIDDEN_OPTIONS.has(o.name))
     .map((o) => ({ ...o, choices: resolveChoices(o, { themes }), presets: o.widget === "bbox" && bboxPresets ? Object.keys(bboxPresets) : [] }))
     .filter((o) => !(o.name === "worldview" && !o.choices.length));
   const byGroup = groups
-    .map((group) => ({ ...group, options: options.filter((o) => o.group === group.id).sort((a, b) => a.order - b.order) }))
-    .filter((group) => group.options.length);
+    .map((group) => {
+      const groupOptions = options.filter((o) => o.group === group.id).sort((a, b) => a.order - b.order);
+      return { ...group, options: groupOptions, advancedCount: groupOptions.filter((o) => o.advanced).length };
+    })
+    .filter((group) => group.options.length || (group.id === "colors" && colorSlots.length));
+  if (colorSlots.length && !byGroup.some((group) => group.id === "colors")) {
+    byGroup.push({ id: "colors", label: "Colours", order: Infinity, options: [], advancedCount: 0 });
+  }
   // Options in groups the description doesn't list still show, last.
   const listed = new Set(groups.map((g) => g.id));
   const rest = options.filter((o) => !listed.has(o.group));
-  if (rest.length) byGroup.push({ id: "other", label: "Other", order: Infinity, options: rest });
-  return { groups: byGroup, options, colorSlots: description.colorSlots || [] };
+  if (rest.length) byGroup.push({ id: "other", label: "Other", order: Infinity, options: rest, advancedCount: rest.filter((o) => o.advanced).length });
+  return { groups: byGroup, options, colorSlots };
 }
 
 function resolveChoices(option, { themes }) {
@@ -215,9 +222,9 @@ export function filterSpec(description, spec = {}) {
 // ---------------------------------------------------------------- DOM
 
 /**
- * Builds the form into `container`: one fieldset per group, advanced
- * options in a collapsed part, then the colour slots. Controls carry
- * `data-option` (option name) or `data-color-slot` (slot key).
+ * Builds the form into `container`: one expandable section per Map Generator
+ * group. All settings stay together, including advanced options and colours.
+ * Controls carry `data-option` (option name) or `data-color-slot` (slot key).
  */
 export function renderForm(container, model, values, { themeColors = {}, colors = {}, idPrefix = "mapgen-option" } = {}) {
   const doc = container.ownerDocument;
@@ -238,25 +245,75 @@ export function renderForm(container, model, values, { themeColors = {}, colors 
     if (option.widget === "checkbox" || option.type === "boolean") {
       const input = el("input", { type: "checkbox", id, "data-option": option.name, "aria-describedby": help.id });
       input.checked = Boolean(value);
-      return el("label", { className: "check-field mapgen-option", for: id, "data-option-field": option.name }, input, el("span", { text: option.label }), help);
+      return el("label", { className: "check-field mapgen-option", for: id, "data-option-field": option.name }, input,
+        el("span", { className: "mapgen-check-copy" }, el("span", { text: option.label }), help));
     }
-    let input;
+    let control;
     let list = null;
-    if (option.choices.length) {
-      input = el("select", { id, "data-option": option.name, "aria-describedby": help.id });
+    let labelFor = id;
+    if (option.widget === "tokens") {
+      const values = splitTokens(value);
+      const chips = el("div", { className: "mapgen-token-list", "data-token-list": option.name, role: "list", "aria-label": `${option.label} selected` });
+      for (const token of values) {
+        const chip = el("span", { className: "mapgen-token-chip", role: "listitem" }, el("span", { text: token }));
+        chip.append(el("button", { type: "button", "data-remove-mapgen-token": option.name, "data-token-value": token, "aria-label": `Remove ${token}` }, el("span", { "aria-hidden": "true", text: "×" })));
+        chips.append(chip);
+      }
+      const entry = el("input", { type: "text", id, "data-token-entry": option.name, "aria-describedby": help.id, autocomplete: "off", placeholder: "Type a value and press Enter" });
+      if (option.suggestions?.length) {
+        list = el("datalist", { id: `${id}-list` });
+        for (const hint of option.suggestions) list.append(el("option", { value: String(hint.value), label: hint.label || String(hint.value) }));
+        entry.setAttribute("list", list.id);
+      }
+      const stored = el("input", { type: "hidden", "data-option": option.name });
+      stored.value = values.join(", ");
+      control = el("div", { className: "mapgen-token-control", "data-token-control": option.name }, chips, entry, stored);
+    } else if (option.widget === "bbox" && option.presets.length) {
+      const isPreset = option.presets.includes(String(value ?? ""));
+      const select = el("select", { id, "data-bbox-preset": option.name, "aria-describedby": help.id },
+        el("option", { value: "__custom__", text: "Custom coordinates" }));
+      for (const preset of option.presets) {
+        select.append(el("option", { value: preset, text: preset.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) }));
+      }
+      select.value = isPreset ? String(value) : "__custom__";
+      const custom = el("input", { type: "text", id: `${id}-coordinates`, "data-bbox-custom": option.name, "aria-describedby": help.id, autocomplete: "off", spellcheck: "false", placeholder: "west, south, east, north" });
+      custom.value = isPreset ? "" : String(value ?? "");
+      custom.hidden = isPreset;
+      control = el("div", { className: "mapgen-bbox-control" }, select, custom);
+    } else if (option.widget === "pair") {
+      const pairValues = String(value ?? "").split(/[\s,;]+/).filter(Boolean);
+      const pair = el("div", { className: "mapgen-pair-control", "data-pair-option": option.name });
+      for (let index = 0; index < 2; index += 1) {
+        const input = el("input", {
+          type: "number",
+          id: index === 0 ? id : `${id}-second`,
+          "data-pair-value": String(index),
+          "aria-describedby": help.id,
+          "aria-label": `${option.label}: ${index === 0 ? "first" : "second"} value`,
+          placeholder: index === 0 ? "First value" : "Second value",
+          step: option.step === undefined ? "any" : String(option.step),
+        });
+        if (option.minimum !== undefined) input.setAttribute("min", String(option.minimum));
+        if (option.maximum !== undefined) input.setAttribute("max", String(option.maximum));
+        input.value = pairValues[index] || "";
+        pair.append(input);
+      }
+      control = pair;
+    } else if (option.choices.length) {
+      control = el("select", { id, "data-option": option.name, "aria-describedby": help.id });
       const selected = value === "" && option.default !== undefined ? String(option.default) : String(value ?? "");
-      if (option.default === undefined) input.append(el("option", { value: "", text: "Default" }));
+      if (option.default === undefined) control.append(el("option", { value: "", text: "Default" }));
       for (const choice of option.choices) {
         const item = el("option", { value: String(choice.value), text: choice.label || String(choice.value) });
         if (String(choice.value) === selected) item.setAttribute("selected", "");
-        input.append(item);
+        control.append(item);
       }
     } else if (option.widget === "textarea") {
-      input = el("textarea", { id, rows: "2", "data-option": option.name, "aria-describedby": help.id });
-      input.textContent = String(value ?? "");
+      control = el("textarea", { id, rows: "2", "data-option": option.name, "aria-describedby": help.id });
+      control.value = String(value ?? "");
     } else {
       const numeric = option.type === "integer" || option.type === "number";
-      input = el("input", {
+      control = el("input", {
         id,
         type: numeric ? "number" : "text",
         "data-option": option.name,
@@ -266,54 +323,54 @@ export function renderForm(container, model, values, { themeColors = {}, colors 
       });
       if (numeric) {
         for (const [attr, key] of [["min", "minimum"], ["max", "maximum"], ["step", "step"]]) {
-          if (option[key] !== undefined) input.setAttribute(attr, String(option[key]));
+          if (option[key] !== undefined) control.setAttribute(attr, String(option[key]));
         }
-        if (option.step === undefined) input.setAttribute("step", "any");
+        if (option.step === undefined) control.setAttribute("step", "any");
       }
-      if (option.maxLength) input.setAttribute("maxlength", String(option.maxLength));
+      if (option.maxLength) control.setAttribute("maxlength", String(option.maxLength));
       const hints = option.widget === "bbox" ? option.presets.map((p) => ({ value: p, label: p })) : option.suggestions || [];
       if (hints.length) {
         list = el("datalist", { id: `${id}-list` });
         for (const h of hints) list.append(el("option", { value: String(h.value), label: h.label || String(h.value) }));
-        input.setAttribute("list", list.id);
+        control.setAttribute("list", list.id);
       }
-      if (option.widget === "pair") input.setAttribute("placeholder", "south, north");
-      else if (option.widget === "bbox") input.setAttribute("placeholder", "west, south, east, north, or a preset");
-      else if (option.default !== undefined && numeric) input.setAttribute("placeholder", String(option.default));
-      else if (option.widget === "tokens" && hints.length) input.setAttribute("placeholder", hints.slice(0, 3).map((h) => h.value).join(", "));
-      input.value = String(value ?? "");
+      if (option.widget === "bbox") control.setAttribute("placeholder", "west, south, east, north");
+      else if (option.default !== undefined && numeric) control.setAttribute("placeholder", String(option.default));
+      control.value = String(value ?? "");
     }
-    const field = el("label", { className: "field mapgen-option", for: id, "data-option-field": option.name }, el("span", { text: option.label }), input);
+    const field = el("div", { className: "field mapgen-option", "data-option-field": option.name }, el("label", { for: labelFor, text: option.label }), control);
     if (list) field.append(list);
     field.append(help);
     return field;
   };
   const parts = [];
   for (const group of model.groups) {
-    const basic = group.options.filter((o) => !o.advanced);
-    const advanced = group.options.filter((o) => o.advanced);
-    const fieldset = el("fieldset", { className: "mapgen-option-group", "data-group": group.id }, el("legend", { text: group.label }));
-    fieldset.append(...basic.map(control));
-    if (advanced.length) {
-      const more = el("details", { className: "mapgen-option-advanced" }, el("summary", { text: "Advanced" }));
-      more.append(...advanced.map(control));
-      fieldset.append(more);
+    const groupId = `${idPrefix}-group-${group.id}`;
+    const count = group.id === "colors" ? model.colorSlots.length + group.options.length : group.options.length;
+    const advancedCount = group.advancedCount || 0;
+    const meta = group.id === "colors"
+      ? `${count} colour controls`
+      : `${count} settings${advancedCount ? ` · ${advancedCount} advanced` : ""}`;
+    const legend = el("legend", { className: "mapgen-group-legend", id: `${groupId}-legend` },
+      el("span", { className: "mapgen-group-name", text: group.label }),
+      el("span", { className: "mapgen-group-meta", text: meta }));
+    const fields = el("div", { className: "mapgen-group-fields", "aria-labelledby": `${groupId}-legend` });
+    if (group.id === "colors" && model.colorSlots.length) {
+      const grid = el("div", { className: "mapgen-color-grid" });
+      for (const slot of model.colorSlots) {
+        const id = `${idPrefix}-color-${slot.slot}`;
+        const input = el("input", { type: "color", id, "data-color-slot": slot.key, title: slot.description || slot.label });
+        input.value = colors[slot.key] || themeColors[slot.slot] || slot.default;
+        if (colors[slot.key]) input.dataset.changed = "true";
+        grid.append(el("label", { className: "mapgen-color", for: id }, input, el("span", { text: slot.label })));
+      }
+      fields.append(grid);
+      fields.append(...group.options.map(control));
+    } else {
+      fields.append(...group.options.map(control));
     }
-    parts.push(fieldset);
-  }
-  if (model.colorSlots.length) {
-    const fieldset = el("fieldset", { className: "mapgen-option-group mapgen-option-colors", "data-group": "colors" }, el("legend", { text: "Base map colours" }));
-    const grid = el("div", { className: "mapgen-color-grid" });
-    for (const slot of model.colorSlots) {
-      const id = `${idPrefix}-color-${slot.slot}`;
-      const input = el("input", { type: "color", id, "data-color-slot": slot.key, title: slot.description || slot.label });
-      input.value = colors[slot.key] || themeColors[slot.slot] || slot.default;
-      if (colors[slot.key]) input.dataset.changed = "true";
-      grid.append(el("label", { className: "mapgen-color", for: id }, input, el("span", { text: slot.label })));
-    }
-    const more = el("details", { className: "mapgen-option-advanced" }, el("summary", { text: "Colours" }), grid);
-    fieldset.append(more);
-    parts.push(fieldset);
+    const section = el("fieldset", { className: "mapgen-option-group", "data-option-group": group.id }, legend, fields);
+    parts.push(section);
   }
   container.replaceChildren(...parts);
   updateVisibility(container, model);
@@ -325,11 +382,23 @@ export function readForm(container) {
   for (const input of container.querySelectorAll("[data-option]")) {
     raw[input.dataset.option] = input.type === "checkbox" ? input.checked : input.value;
   }
+  for (const select of container.querySelectorAll("[data-bbox-preset]")) {
+    const custom = [...container.querySelectorAll("[data-bbox-custom]")].find((input) => input.dataset.bboxCustom === select.dataset.bboxPreset);
+    raw[select.dataset.bboxPreset] = select.value === "__custom__" ? custom?.value || "" : select.value;
+  }
+  for (const pair of container.querySelectorAll("[data-pair-option]")) {
+    const values = [...pair.querySelectorAll("[data-pair-value]")].map((input) => input.value.trim());
+    raw[pair.dataset.pairOption] = values.every((value) => !value) ? "" : values.join(",");
+  }
   const colors = {};
   for (const input of container.querySelectorAll("input[data-color-slot]")) {
     if (input.dataset.changed === "true") colors[input.dataset.colorSlot] = input.value;
   }
   return { raw, colors };
+}
+
+function splitTokens(value) {
+  return [...new Set(String(value ?? "").split(/[,;\n]/).map((token) => token.trim()).filter(Boolean))];
 }
 
 /** Shows only the options that apply to the current values. */
