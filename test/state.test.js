@@ -42,7 +42,9 @@ test("a generated map is restored with its settings, within limits", () => {
   assert.equal(saved.generatedMap.spec.width, 4000);
   assert.equal(saved.generatedMap.spec.labels, false);
   assert.equal(saved.generatedMap.spec.theme, "dark");
-  assert.deepEqual(saved.generatedMap.spec.languages, ["fr"]);
+  // Any well-formed setting is kept; the form checks values against Map
+  // Generator's description when it loads (mapgen-options.test.js).
+  assert.deepEqual(saved.generatedMap.spec.languages, ["fr", 3]);
   // An unusable generated map doesn't leave the app on the generated scope.
   const broken = parseSavedState(JSON.stringify({
     palette: [{ color: "#112233" }, { color: "#445566" }],

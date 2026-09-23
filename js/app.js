@@ -12,6 +12,18 @@ import {
 } from "./maps.js";
 import { createPdfFromJpeg } from "./pdf.js";
 import { parseDelimitedText } from "./csv.js";
+import {
+  applyThemeColors,
+  FALLBACK_DESCRIPTION,
+  filterSpec,
+  formModel,
+  readForm,
+  renderForm,
+  specFromValues,
+  updateVisibility,
+  validDescription,
+  valuesFromSpec,
+} from "./mapgen-options.js";
 import { DEFAULT_EXPORT_OPTIONS, DEFAULT_PALETTE, parseSavedState, validHex } from "./state.js";
 import {
   addMapAnnotations,
@@ -193,7 +205,11 @@ let mapgenClient = null;
 let mapgenDatasets = [];
 let mapgenRegions = [];
 let selectedMapgenRegions = new Set();
-let mapgenThemes = [];
+/** Map Generator's description of its settings, the form built from it, and catalogs its choices use. */
+let mapgenDescription = FALLBACK_DESCRIPTION;
+let mapgenModel = null;
+let mapgenThemes = {};
+let mapgenBboxPresets = {};
 let activeGeneratedFeatures = [];
 let generatedFeatureIndex = { records: [], byCode: new Map(), byName: new Map(), byUnit: new Map() };
 let activeMapMetadata = null;
@@ -231,13 +247,7 @@ const elements = {
   mapgenSelectedRegions: document.querySelector("#mapgen-selected-regions"),
   mapgenSelectionCount: document.querySelector("#mapgen-selection-count"),
   mapgenRegionEmpty: document.querySelector("#mapgen-region-empty"),
-  mapgenLabels: document.querySelector("#mapgen-labels"),
-  mapgenLanguages: document.querySelector("#mapgen-languages"),
-  mapgenWorldview: document.querySelector("#mapgen-worldview"),
-  mapgenTheme: document.querySelector("#mapgen-theme"),
-  mapgenCustomBounds: document.querySelector("#mapgen-custom-bounds"),
-  mapgenBounds: document.querySelector("#mapgen-bounds"),
-  mapgenBoundsField: document.querySelector(".mapgen-bounds-field"),
+  mapgenOptions: document.querySelector("#mapgen-options"),
   mapgenCreateButton: document.querySelector("#mapgen-create-button"),
   mapgenStatus: document.querySelector("#mapgen-status"),
   shareAlikeNote: document.querySelector("#share-alike-note"),
@@ -475,9 +485,25 @@ async function fetchGeneratedMap(config) {
 
 async function loadMapgenCatalog() {
   const api = await getMapgenClient();
-  const [datasetPayload, themePayload] = await Promise.all([api.datasets(), api.themes()]);
+  // Settings, themes and presets are optional: without them the form falls
+  // back to the settings Maphue always offered.
+  const optional = (request) => request.catch((error) => {
+    console.warn("Map Generator catalog unavailable:", error);
+    return null;
+  });
+  const [datasetPayload, themePayload, optionsPayload, presetsPayload] = await Promise.all([
+    api.datasets(),
+    optional(api.themes()),
+    optional(typeof api.renderOptions === "function" ? api.renderOptions() : Promise.resolve(null)),
+    optional(api.fetch(`${api.base}/bbox-presets`).then((response) => (response.ok ? response.json() : null))),
+  ]);
   mapgenDatasets = collectionFrom(datasetPayload, "datasets");
-  mapgenThemes = collectionFrom(themePayload, "themes");
+  mapgenThemes = themePayload && typeof themePayload === "object" && !Array.isArray(themePayload) ? themePayload : {};
+  mapgenBboxPresets = presetsPayload && typeof presetsPayload === "object" ? presetsPayload : {};
+  mapgenDescription = validDescription(optionsPayload) || FALLBACK_DESCRIPTION;
+  if (state.generatedMap) {
+    state.generatedMap = { ...state.generatedMap, spec: filterSpec(mapgenDescription, state.generatedMap.spec) };
+  }
   renderMapgenCatalog();
   if (state.generatedMap && state.mapScope === "generated") {
     elements.mapgenDataset.value = state.generatedMap.dataset;
@@ -493,25 +519,8 @@ async function loadMapgenCatalog() {
 
 
 function applyGeneratedConfigToForm(config) {
-  const spec = config.spec || {};
-  elements.mapgenLabels.checked = spec.labels !== false;
-  elements.mapgenLanguages.value = Array.isArray(spec.languages) ? spec.languages.join(", ") : "";
-  elements.mapgenTheme.value = typeof spec.theme === "string" &&
-    [...elements.mapgenTheme.options].some((option) => option.value === spec.theme)
-    ? spec.theme
-    : "";
-  elements.mapgenWorldview.value = typeof spec.worldview === "string" &&
-    [...elements.mapgenWorldview.options].some((option) => option.value === spec.worldview)
-    ? spec.worldview
-    : "";
-
-  const bounds = String(spec.bbox || "").split(/[\s,]+/).filter(Boolean).map(Number);
-  const validBounds = bounds.length === 4 && bounds.every(Number.isFinite) &&
-    bounds[0] >= -180 && bounds[2] <= 180 && bounds[1] >= -90 && bounds[3] <= 90 &&
-    bounds[0] < bounds[2] && bounds[1] < bounds[3];
-  elements.mapgenCustomBounds.checked = validBounds;
-  elements.mapgenBoundsField.hidden = !validBounds;
-  elements.mapgenBounds.value = validBounds ? bounds.join(", ") : "";
+  const dataset = mapgenDatasets.find((item) => item.id === config.dataset);
+  renderMapgenOptions(dataset, config.spec || {});
 }
 
 function renderMapgenCatalog() {
@@ -530,14 +539,6 @@ function renderMapgenCatalog() {
   elements.mapgenDataset.disabled = mapgenDatasets.length === 0;
   if (selectedDataset) elements.mapgenDataset.value = selectedDataset.id;
 
-  const themeRows = mapgenThemes.map((theme) => typeof theme === "string"
-    ? { id: theme, title: theme }
-    : { id: theme.id || theme.name || theme.title, title: theme.title || theme.name || theme.id });
-  elements.mapgenTheme.replaceChildren(
-    new Option("Default", ""),
-    ...themeRows.filter((theme) => theme.id).map((theme) => new Option(theme.title, theme.id)),
-  );
-  elements.mapgenTheme.disabled = themeRows.length === 0;
   renderMapgenOptionsForDataset(selectedDataset);
 }
 
@@ -622,17 +623,29 @@ function syncMapgenRegionSelection() {
 }
 
 
+/**
+ * Builds the settings form for a dataset from Map Generator's description,
+ * with `spec`'s values (default: what the form holds now, so switching
+ * datasets keeps the settings).
+ */
+function renderMapgenOptions(dataset, spec = null) {
+  const previous = mapgenModel && !spec ? readForm(elements.mapgenOptions) : null;
+  mapgenModel = formModel(mapgenDescription, { themes: mapgenThemes, bboxPresets: mapgenBboxPresets });
+  const values = valuesFromSpec(mapgenModel, spec || {});
+  if (previous) {
+    for (const option of mapgenModel.options) {
+      if (Object.hasOwn(previous.raw, option.name)) values[option.name] = previous.raw[option.name];
+    }
+  }
+  const theme = String((previous?.raw.theme ?? spec?.theme) || "wikimedia");
+  renderForm(elements.mapgenOptions, mapgenModel, values, {
+    themeColors: mapgenThemes[theme] || {},
+    colors: previous ? previous.colors : spec?.colors || {},
+  });
+}
+
 function renderMapgenOptionsForDataset(dataset) {
-  const worldviews = Array.isArray(dataset?.worldviews) ? dataset.worldviews : [];
-  elements.mapgenWorldview.replaceChildren(
-    new Option("Default", ""),
-    ...worldviews.map((view) => new Option(view, view)),
-  );
-  elements.mapgenWorldview.disabled = worldviews.length === 0;
-  const languages = Array.isArray(dataset?.languages) ? dataset.languages : [];
-  elements.mapgenLanguages.placeholder = languages.length
-    ? `Optional · ${languages.slice(0, 4).join(", ")}`
-    : "Optional · en, fr, zh-Hant";
+  renderMapgenOptions(dataset);
   const provenance = dataset?.licencePerRegion
     ? "Each map has its own licence."
     : [dataset?.licence, dataset?.boundaryYear && `boundaries ${dataset.boundaryYear}`]
@@ -712,30 +725,11 @@ async function handleGeneratedMapCreate() {
     return;
   }
 
-  const languages = elements.mapgenLanguages.value
-    .split(/[;,]/)
-    .map((language) => language.trim())
-    .filter(Boolean);
-  const spec = {
-    target: "commons",
-    width: 1600,
-    labels: elements.mapgenLabels.checked,
-    ...(languages.length ? { languages } : {}),
-    ...(elements.mapgenTheme.value ? { theme: elements.mapgenTheme.value } : {}),
-    ...(elements.mapgenWorldview.value ? { worldview: elements.mapgenWorldview.value } : {}),
-  };
-  if (elements.mapgenCustomBounds.checked) {
-    const bounds = elements.mapgenBounds.value.split(/[\s,]+/).filter(Boolean).map(Number);
-    if (bounds.length !== 4 || !bounds.every(Number.isFinite)) {
-      setGeneratedStatus("Enter four numbers: west, south, east, north.", true);
-      return;
-    }
-    const [west, south, east, north] = bounds;
-    if (west < -180 || east > 180 || south < -90 || north > 90 || west >= east || south >= north) {
-      setGeneratedStatus("Bounds must be within longitude −180 to 180 and latitude −90 to 90, with west/south before east/north.", true);
-      return;
-    }
-    spec.bbox = bounds.join(",");
+  const { raw, colors } = readForm(elements.mapgenOptions);
+  const { spec, errors } = specFromValues(mapgenModel, raw, colors);
+  if (errors.length) {
+    setGeneratedStatus(errors.join(" "), true);
+    return;
   }
 
   const config = {
@@ -1088,8 +1082,16 @@ function bindStaticEvents() {
     selectedMapgenRegions.delete(removeButton.dataset.removeMapgenRegion);
     syncMapgenRegionSelection();
   });
-  elements.mapgenCustomBounds.addEventListener("change", () => {
-    elements.mapgenBoundsField.hidden = !elements.mapgenCustomBounds.checked;
+  elements.mapgenOptions.addEventListener("input", (event) => {
+    if (event.target.matches?.("input[data-color-slot]")) event.target.dataset.changed = "true";
+    if (mapgenModel) updateVisibility(elements.mapgenOptions, mapgenModel);
+  });
+  elements.mapgenOptions.addEventListener("change", (event) => {
+    if (!mapgenModel) return;
+    if (event.target.dataset?.option === "theme") {
+      applyThemeColors(elements.mapgenOptions, mapgenModel, mapgenThemes[event.target.value || "wikimedia"] || {});
+    }
+    updateVisibility(elements.mapgenOptions, mapgenModel);
   });
   elements.mapgenCreateButton.addEventListener("click", handleGeneratedMapCreate);
   elements.countrySearch.addEventListener("input", renderCountryList);

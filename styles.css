@@ -1800,3 +1800,94 @@ dialog p {
     font-size: 10px;
   }
 }
+
+/* Map settings built from Map Generator's render options */
+.mapgen-option-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 0 2px;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.mapgen-option-group:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.mapgen-option-group > legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 740;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mapgen-option[hidden] {
+  display: none;
+}
+
+.check-field.mapgen-option {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.check-field.mapgen-option > .field-help {
+  flex-basis: 100%;
+  padding-left: 25px;
+}
+
+.mapgen-option .field-help {
+  font-weight: 500;
+}
+
+.mapgen-option-advanced {
+  display: grid;
+  gap: 10px;
+}
+
+.mapgen-option-advanced > summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mapgen-option-advanced[open] > summary {
+  margin-bottom: 8px;
+}
+
+.mapgen-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.mapgen-color {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.mapgen-color input {
+  flex: none;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: none;
+}
+
+.mapgen-color span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
