@@ -497,7 +497,7 @@ async function loadMapgenCatalog() {
   const [datasetPayload, themePayload, optionsPayload, presetsPayload] = await Promise.all([
     api.datasets(),
     optional(api.themes()),
-    optional(typeof api.renderOptions === "function" ? api.renderOptions() : Promise.resolve(null)),
+    optional(api.fetch(`${api.base}/render-options`).then((response) => (response.ok ? response.json() : null))),
     optional(api.fetch(`${api.base}/bbox-presets`).then((response) => (response.ok ? response.json() : null))),
   ]);
   mapgenDatasets = collectionFrom(datasetPayload, "datasets");
