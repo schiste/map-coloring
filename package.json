@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 8080",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "deploy:toolforge": "scripts/deploy-toolforge.sh --apply",
     "deploy:toolforge:dry-run": "scripts/deploy-toolforge.sh --dry-run",
     "deploy:toolforge:restart": "scripts/deploy-toolforge.sh --apply --restart"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.13"
   }
 }

@@ -1,0 +1,114 @@
+{
+  "boundaryYear": null,
+  "center": [
+    37.27538100000001,
+    0.0
+  ],
+  "contract": 1,
+  "credit": "Natural Earth (de facto view)",
+  "dataset": "ne-admin0",
+  "height": 876,
+  "insets": [
+    {
+      "ids": [
+        "ATA",
+        "SGS"
+      ],
+      "projection": "equal-earth"
+    },
+    {
+      "ids": [
+        "NZL"
+      ],
+      "projection": "laea"
+    }
+  ],
+  "legendSlots": [
+    {
+      "height": 54.0,
+      "landShare": 0.322,
+      "position": "top-left",
+      "width": 1590.0,
+      "x": 6.0,
+      "y": 6.0
+    },
+    {
+      "height": 54.0,
+      "landShare": 0.535,
+      "position": "top-center",
+      "width": 1590.0,
+      "x": 6.0,
+      "y": 6.0
+    },
+    {
+      "height": 54.0,
+      "landShare": 0.203,
+      "position": "top-right",
+      "width": 1590.0,
+      "x": 6.0,
+      "y": 6.0
+    },
+    {
+      "height": 54.0,
+      "landShare": 0.071,
+      "position": "bottom-center",
+      "width": 1158.0,
+      "x": 222.0,
+      "y": 816.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.227,
+      "position": "middle-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 438.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.517,
+      "position": "center",
+      "width": 0.0,
+      "x": 798.0,
+      "y": 438.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.11,
+      "position": "middle-right",
+      "width": 0.0,
+      "x": 1596.0,
+      "y": 438.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.253,
+      "position": "bottom-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 870.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.205,
+      "position": "bottom-right",
+      "width": 0.0,
+      "x": 1596.0,
+      "y": 870.0
+    }
+  ],
+  "licence": "Public domain",
+  "licenceUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "outsideFrame": [
+    "PYF"
+  ],
+  "projection": "equal-earth",
+  "region": "world",
+  "regions": 257,
+  "release": "natural-earth-vector@ca96624",
+  "sha1": "9f3cd5890551c3c23fb1423e41434f7a3323d2b2",
+  "shareAlike": false,
+  "sourceRelease": "natural-earth-vector@ca96624",
+  "url": "/api/v1/maps/ne-admin0/world.json?labels=true&target=commons&width=1600",
+  "width": 1600
+}

@@ -1,0 +1,124 @@
+{
+  "boundaryYear": null,
+  "center": [
+    2.213389499999977,
+    46.2267265
+  ],
+  "contract": 1,
+  "credit": "Natural Earth (de facto view)",
+  "dataset": "ne-admin1",
+  "height": 742,
+  "insets": [
+    {
+      "ids": [
+        "FR-GF"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-GP",
+        "FR-MQ"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-RE"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-YT"
+      ],
+      "projection": "laea"
+    }
+  ],
+  "legendSlots": [
+    {
+      "height": 450.0,
+      "landShare": 0.267,
+      "position": "middle-right",
+      "width": 72.0,
+      "x": 726.0,
+      "y": 144.0
+    },
+    {
+      "height": 216.0,
+      "landShare": 0.31,
+      "position": "middle-left",
+      "width": 102.0,
+      "x": 6.0,
+      "y": 264.0
+    },
+    {
+      "height": 66.0,
+      "landShare": 0.479,
+      "position": "bottom-center",
+      "width": 276.0,
+      "x": 264.0,
+      "y": 672.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.325,
+      "position": "top-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.635,
+      "position": "top-center",
+      "width": 0.0,
+      "x": 402.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.33,
+      "position": "top-right",
+      "width": 0.0,
+      "x": 798.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 1.0,
+      "position": "center",
+      "width": 0.0,
+      "x": 402.0,
+      "y": 372.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.783,
+      "position": "bottom-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 738.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.194,
+      "position": "bottom-right",
+      "width": 0.0,
+      "x": 798.0,
+      "y": 738.0
+    }
+  ],
+  "licence": "Public domain",
+  "licenceUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "outsideFrame": [],
+  "projection": "laea",
+  "region": "FRA",
+  "regions": 101,
+  "release": "natural-earth-vector@ca96624",
+  "sha1": "72287114e80aecf3570d9952c39ba55115acee2b",
+  "shareAlike": false,
+  "sourceRelease": "natural-earth-vector@ca96624",
+  "url": "/api/v1/maps/ne-admin1/FRA.json?labels=true&target=commons&width=800",
+  "width": 800
+}

@@ -22,8 +22,10 @@ export function calculateAnchoredPosition(
   const safePosition = LEGEND_POSITIONS.includes(position) ? position : "bottom-left";
   if (safePosition === "auto") {
     const slot = options.autoLegendSlot;
+    // Map Generator's slots are in the map's own coordinates, which a
+    // title band above the map (viewBox from y = -40) doesn't shift.
     if (slot && slot.width >= itemWidth && slot.height >= itemHeight) {
-      return { x: minX + slot.x, y: minY + slot.y };
+      return { x: slot.x, y: slot.y };
     }
   }
   const anchoredPosition = safePosition === "auto" ? "bottom-left" : safePosition;
