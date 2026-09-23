@@ -1,6 +1,5 @@
 import { getNextColorIndex } from "./cycle.js";
 import {
-  calculateAnchoredPosition,
   LEGEND_POSITIONS,
   readableTextColor,
 } from "./export-layout.js";
@@ -12,55 +11,36 @@ import {
   PREFERRED_MAP_TITLE,
 } from "./maps.js";
 import { createPdfFromJpeg } from "./pdf.js";
+import { parseDelimitedText } from "./csv.js";
+import { DEFAULT_EXPORT_OPTIONS, DEFAULT_PALETTE, parseSavedState, validHex } from "./state.js";
+import {
+  addMapAnnotations,
+  buildExportSvg,
+  getExportAttributionLayout,
+  getSvgViewBox,
+  removeMapAnnotations,
+  sanitizeSvg,
+} from "./svg-export.js";
 import {
   assertSupportedMapgenSvg,
   buildGeneratedFeatureIndex,
   collectionFrom,
+  countFeaturesWithoutData,
+  crosswalkAppliesTo,
+  crosswalkHints,
+  crosswalkId,
+  generatedColorRules,
   normalizeAssignmentKey,
   normalizeCrosswalkCode,
   normalizeMapLookup,
+  normalizeMapLookup as normalizeLookup,
+  recodeWithCrosswalk,
   resolveGeneratedFeature,
-  selectAutoLegendSlot,
   slotBounds,
 } from "./map-generator.js";
 
 const STORAGE_KEY = "maphue-state-v1";
 const THEME_STORAGE_KEY = "maphue-theme";
-const DEFAULT_PALETTE = [
-  { color: "#E85D3F", label: "Category one" },
-  { color: "#2E6E65", label: "Category two" },
-  { color: "#E3B23C", label: "Category three" },
-  { color: "#4169A8", label: "Category four" },
-  { color: "#8C5E9E", label: "Category five" },
-  { color: "#D78735", label: "Category six" },
-  { color: "#3D8B52", label: "Category seven" },
-  { color: "#B6495A", label: "Category eight" },
-];
-const DEFAULT_EXPORT_OPTIONS = {
-  legendEnabled: true,
-  legendPosition: "auto",
-  legendBackground: "#fffefa",
-  legendTextColor: "#18211d",
-  legendOpacity: 1,
-  title: "",
-  titlePosition: "auto",
-};
-const CSS_REFERENCE_ATTRIBUTES = new Set([
-  "clip-path",
-  "color-profile",
-  "cursor",
-  "fill",
-  "filter",
-  "marker-end",
-  "marker-mid",
-  "marker-start",
-  "mask",
-  "shape-inside",
-  "shape-subtract",
-  "stroke",
-  "style",
-]);
-
 const DISPLAY_NAME_OVERRIDES = {
   BO: "Bolivia",
   BN: "Brunei",
@@ -900,111 +880,16 @@ async function switchToMap(nextMap, options = {}) {
 function restoreState() {
   const storedState = readStoredValue(STORAGE_KEY);
   if (storedState === null) return;
-
-  try {
-    const saved = JSON.parse(storedState);
-    if (
-      !saved ||
-      !Array.isArray(saved.palette) ||
-      !saved.assignments ||
-      typeof saved.assignments !== "object"
-    ) {
-      return;
-    }
-
-    state.palette = saved.palette
-      .slice(0, 8)
-      .map((item, index) => ({
-        color: validHex(item.color) ? item.color : DEFAULT_PALETTE[index].color,
-        label: String(item.label || DEFAULT_PALETTE[index].label).slice(0, 80),
-      }));
-    if (state.palette.length < 2) {
-      state.palette = DEFAULT_PALETTE.slice(0, 3).map((item) => ({ ...item }));
-    }
-    state.assignments = Object.fromEntries(
-      Object.entries(saved.assignments)
-        .map(([key, index]) => [normalizeAssignmentKey(key), index])
-        .filter(([key, index]) => key && Number.isInteger(index) && index >= 0 && index < state.palette.length),
-    );
-    if (saved.generatedMap && typeof saved.generatedMap === "object") {
-      const dataset = String(saved.generatedMap.dataset || "");
-      const savedRegions = Array.isArray(saved.generatedMap.regions)
-        ? saved.generatedMap.regions
-            .map((item) => ({
-              code: String(typeof item === "string" ? item : item?.code || "").trim(),
-              name: String(typeof item === "string" ? item : item?.name || item?.code || "").slice(0, 120),
-            }))
-            .filter((item) => /^[a-z0-9._:-]{1,40}$/i.test(item.code))
-            .slice(0, 300)
-        : [];
-      const region = String(saved.generatedMap.region || savedRegions.map((item) => item.code).join(",")).trim();
-      if (/^[a-z0-9-]{1,80}$/i.test(dataset) && /^[a-z0-9 _.,:-]{1,4000}$/i.test(region)) {
-        const savedSpec = saved.generatedMap.spec && typeof saved.generatedMap.spec === "object"
-          ? saved.generatedMap.spec
-          : {};
-        state.generatedMap = {
-          dataset,
-          datasetName: String(saved.generatedMap.datasetName || dataset).slice(0, 100),
-          region,
-          regionName: String(saved.generatedMap.regionName || savedRegions.map((item) => item.name).join(", ") || region).slice(0, 120),
-          regions: savedRegions,
-          spec: {
-            target: "commons",
-            width: Number.isFinite(savedSpec.width) ? Math.min(4000, Math.max(300, savedSpec.width)) : 1600,
-            labels: typeof savedSpec.labels === "boolean" ? savedSpec.labels : true,
-            ...(typeof savedSpec.theme === "string" ? { theme: savedSpec.theme.slice(0, 80) } : {}),
-            ...(typeof savedSpec.worldview === "string" ? { worldview: savedSpec.worldview.slice(0, 80) } : {}),
-            ...(typeof savedSpec.bbox === "string" ? { bbox: savedSpec.bbox.slice(0, 100) } : {}),
-            ...(Array.isArray(savedSpec.languages) ? { languages: savedSpec.languages.filter((value) => typeof value === "string").slice(0, 12) } : {}),
-          },
-          url: typeof saved.generatedMap.url === "string" ? saved.generatedMap.url.slice(0, 1000) : "",
-        };
-      }
-    }
-    if (typeof saved.mapTitle === "string" && /^File:.*\.svg$/i.test(saved.mapTitle)) {
-      state.mapTitle = saved.mapTitle;
-    }
-    if (saved.mapScope === "continent" || saved.mapScope === "world" ||
-        (saved.mapScope === "generated" && state.generatedMap)) {
-      state.mapScope = saved.mapScope;
-    }
-    if (saved.mapSelections && typeof saved.mapSelections === "object") {
-      for (const scope of ["world", "continent"]) {
-        const title = saved.mapSelections[scope];
-        if (typeof title === "string" && /^File:.*\.svg$/i.test(title)) {
-          state.mapSelections[scope] = title;
-        }
-      }
-    } else if (state.mapScope === "world") {
-      state.mapSelections.world = state.mapTitle;
-    }
-    const savedExportOptions = saved.exportOptions || {};
-    const savedLegendBackground = validHex(savedExportOptions.legendBackground)
-      ? savedExportOptions.legendBackground
-      : DEFAULT_EXPORT_OPTIONS.legendBackground;
-    state.exportOptions = {
-      legendEnabled:
-        typeof savedExportOptions.legendEnabled === "boolean"
-          ? savedExportOptions.legendEnabled
-          : DEFAULT_EXPORT_OPTIONS.legendEnabled,
-      legendPosition: LEGEND_POSITIONS.includes(savedExportOptions.legendPosition)
-        ? savedExportOptions.legendPosition
-        : DEFAULT_EXPORT_OPTIONS.legendPosition,
-      legendBackground: savedLegendBackground,
-      legendTextColor: validHex(savedExportOptions.legendTextColor)
-        ? savedExportOptions.legendTextColor
-        : readableTextColor(savedLegendBackground),
-      legendOpacity: Number.isFinite(savedExportOptions.legendOpacity)
-        ? Math.min(1, Math.max(0, savedExportOptions.legendOpacity))
-        : DEFAULT_EXPORT_OPTIONS.legendOpacity,
-      title: String(savedExportOptions.title || "").slice(0, 120),
-      titlePosition: ["auto", "top", "bottom"].includes(savedExportOptions.titlePosition)
-        ? savedExportOptions.titlePosition
-        : DEFAULT_EXPORT_OPTIONS.titlePosition,
-    };
-  } catch {
+  const saved = parseSavedState(storedState, {
+    mapScope: state.mapScope,
+    mapTitle: state.mapTitle,
+    mapSelections: state.mapSelections,
+  });
+  if (saved === null) {
     removeStoredValue(STORAGE_KEY);
+    return;
   }
+  Object.assign(state, saved);
 }
 
 function mountSvg(svgText) {
@@ -1064,71 +949,10 @@ function mountSvg(svgText) {
   mapShadowRoot.replaceChildren(svgElement, mapStyles);
 }
 
-function sanitizeSvg(svg) {
-  svg
-    .querySelectorAll("script, foreignObject, animate, animateTransform, animateMotion, set")
-    .forEach((element) => element.remove());
-  for (const element of [svg, ...svg.querySelectorAll("*")]) {
-    for (const attribute of [...element.attributes]) {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value.trim();
-      if (name.startsWith("on")) element.removeAttribute(attribute.name);
-      if (name === "src" || name === "xml:base") element.removeAttribute(attribute.name);
-      if ((name === "href" || name === "xlink:href") && value && !value.startsWith("#")) {
-        element.removeAttribute(attribute.name);
-      }
-      if (CSS_REFERENCE_ATTRIBUTES.has(name)) {
-        const sanitized = sanitizeCssReferences(value);
-        if (sanitized) element.setAttribute(attribute.name, sanitized);
-        else element.removeAttribute(attribute.name);
-      }
-    }
-  }
-  svg.querySelectorAll("style").forEach((style) => {
-    const sanitized = sanitizeCssReferences(style.textContent || "");
-    if (sanitized) style.textContent = sanitized;
-    else style.remove();
-  });
-}
 
-function sanitizeCssReferences(cssText) {
-  const normalized = decodeCssEscapes(String(cssText))
-    .replace(/\/\*[\s\S]*?\*\//g, "");
-  if (/@import\b/i.test(normalized)) return "";
 
-  return normalized.replace(
-    /\burl\s*\(\s*(?:(['"])(.*?)\1|([^)]*))\s*\)/gi,
-    (match, quote, quotedValue, bareValue) => {
-      const reference = String(quotedValue ?? bareValue ?? "").trim();
-      return /^#[A-Za-z_][\w:.-]*$/.test(reference) ? match : "none";
-    },
-  );
-}
 
-function decodeCssEscapes(value) {
-  return value.replace(/\\([\da-f]{1,6})\s?|\\([\s\S])/gi, (_match, hex, character) => {
-    if (!hex) return character || "";
-    const codePoint = Number.parseInt(hex, 16);
-    return codePoint > 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "\uFFFD";
-  });
-}
 
-function getSvgViewBox(svg) {
-  const parsedViewBox = (svg.getAttribute("viewBox") || "")
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number);
-  if (parsedViewBox.length === 4 && parsedViewBox.every(Number.isFinite)) return parsedViewBox;
-
-  const width = parseSvgLength(svg.getAttribute("width")) || 2754;
-  const height = parseSvgLength(svg.getAttribute("height")) || 1398;
-  return [0, 0, width, height];
-}
-
-function parseSvgLength(value) {
-  const parsed = Number.parseFloat(String(value || "").replace(/px$/i, ""));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
 
 function buildCountryIndex() {
   const normalizedCountries = sourceCountries.map((country) => {
@@ -1554,16 +1378,9 @@ function handleExportOptionsInput(event) {
 function renderMapAnnotations() {
   if (!svgElement) return;
   removeMapAnnotations(svgElement);
-  const titleSlot = getAutoTitleSlot();
-  if (state.exportOptions.legendEnabled) addLegendToSvg(svgElement, titleSlot);
-  if (state.exportOptions.title.trim()) addTitleToSvg(svgElement, titleSlot);
+  addMapAnnotations(svgElement, exportContext());
 }
 
-function removeMapAnnotations(svg) {
-  svg
-    .querySelectorAll("#maphue-legend, #maphue-title")
-    .forEach((annotation) => annotation.remove());
-}
 
 function renderMapPicker() {
   const generated = state.mapScope === "generated";
@@ -1660,39 +1477,16 @@ function renderMap() {
 
 function renderGeneratedColorStyles(assignments) {
   if (!svgElement) return;
-  const rules = [];
-  const entries = Object.entries(assignments)
-    .map(([key, index]) => [normalizeAssignmentKey(key), index])
-    .filter(([key, index]) => key && Number.isInteger(index) && state.palette[index])
-    .sort(([a], [b]) => assignmentRulePriority(a) - assignmentRulePriority(b));
-  for (const [key, index] of entries) {
-    const separator = key.indexOf(":");
-    const kind = key.slice(0, separator);
-    const code = key.slice(separator + 1);
-    const color = state.palette[index].color;
-    const escaped = escapeCssString(code);
-    if (kind === "country") rules.push(`path.mg-land[class~="${escaped}"] { fill: ${color}; }`);
-    else if (kind === "unit") rules.push(`path.mg-land[data-unit~="${escaped}"] { fill: ${color}; }`);
-    else rules.push(`path.mg-land[data-code="${escaped}"] { fill: ${color}; }`);
-  }
   let style = svgElement.querySelector("#maphue-colors");
   if (!style) {
     style = document.createElementNS("http://www.w3.org/2000/svg", "style");
     style.setAttribute("id", "maphue-colors");
     svgElement.append(style);
   }
-  style.textContent = rules.join("\n");
+  style.textContent = generatedColorRules(assignments, state.palette);
 }
 
-function assignmentRulePriority(key) {
-  if (key.startsWith("country:")) return 0;
-  if (key.startsWith("unit:")) return 1;
-  return 2;
-}
 
-function escapeCssString(value) {
-  return String(value).replace(/[\\"]/g, "\\$&");
-}
 
 function renderCountryList() {
   const focusedKey = elements.countryList.contains(document.activeElement)
@@ -2147,15 +1941,11 @@ function getMatchCodePrefix(header) {
 async function analyzeCrosswalksLocally(preview) {
   try {
     const api = await getMapgenClient();
-    const crosswalks = collectionFrom(await api.crosswalks(), "crosswalks");
-    const rawCodes = [...new Set(preview.unmappedRecords.map((record) => record.rawCode))];
-    const normalizedCodes = new Set(rawCodes.map((code) => normalizeCrosswalkCode(code, preview.codePrefix)));
-    const hints = [];
+    const crosswalks = collectionFrom(await api.crosswalks(), "crosswalks")
+      .filter((crosswalk) => crosswalkId(crosswalk) && crosswalkAppliesTo(crosswalk, activeMap.dataset));
+    const loaded = [];
     for (const crosswalk of crosswalks) {
-      const id = crosswalk.id || /crosswalks\/([^/.]+)\.csv/.exec(crosswalk.table || "")?.[1];
-      if (!id) continue;
-      const appliesTo = [crosswalk.dataset, ...(Array.isArray(crosswalk.datasets) ? crosswalk.datasets : [])].filter(Boolean);
-      if (appliesTo.length && !appliesTo.includes(activeMap.dataset)) continue;
+      const id = crosswalkId(crosswalk);
       let rows = crosswalkRowsById.get(id);
       if (!rows) {
         const response = await api.fetch(`${api.base}/crosswalks/${encodeURIComponent(id)}.csv`);
@@ -2163,61 +1953,21 @@ async function analyzeCrosswalksLocally(preview) {
         rows = parseDelimitedText(await response.text());
         crosswalkRowsById.set(id, rows);
       }
-      if (rows.length < 2) continue;
-      const columns = findCrosswalkCodeColumns(rows[0].map(normalizeLookup));
-      if (!columns) continue;
-      const { fromColumn, toColumn } = columns;
-      const fromCodes = new Set(rows.slice(1).map((row) => normalizeCrosswalkCode(row[fromColumn])).filter(Boolean));
-      const toCodes = new Set(rows.slice(1).map((row) => normalizeCrosswalkCode(row[toColumn])).filter(Boolean));
-      const oldCodes = [...normalizedCodes].filter((code) => fromCodes.has(code) && !toCodes.has(code));
-      const newCodes = [...normalizedCodes].filter((code) => toCodes.has(code) && !fromCodes.has(code));
-      const title = crosswalk.title || crosswalk.name || id;
-      if (oldCodes.length) {
-        hints.push({
-          crosswalk: id,
-          direction: "old-data",
-          codes: oldCodes,
-          message: `${oldCodes.length} code${oldCodes.length === 1 ? " is" : "s are"} from an older boundary set (${title}). Recode through this crosswalk or review the split regions.`,
-        });
-      }
-      if (newCodes.length) {
-        hints.push({
-          crosswalk: id,
-          direction: "new-data",
-          codes: newCodes,
-          message: `${newCodes.length} code${newCodes.length === 1 ? " is" : "s are"} from a newer boundary set (${title}); this map uses older boundaries.`,
-        });
-      }
+      loaded.push({ id, title: crosswalk.title || crosswalk.name || id, rows });
     }
+    const rawCodes = preview.unmappedRecords.map((record) => record.rawCode);
+    const hints = crosswalkHints(rawCodes, preview.codePrefix, loaded);
     if (preview !== importPreview) return;
-    const importKeys = new Set(preview.assignments.keys());
-    const mapWithoutData = generatedFeatureIndex.records.filter((feature) => {
-      if (importKeys.has(feature.assignmentKey)) return false;
-      if (feature.countryCode && importKeys.has(`country:${feature.countryCode.toLowerCase()}`)) return false;
-      return !(Array.isArray(feature.units) && feature.units.some((unit) => importKeys.has(`unit:${String(unit).toUpperCase()}`)));
-    }).length;
-    preview.matchResult = { hints, mapWithoutData };
+    preview.matchResult = {
+      hints,
+      mapWithoutData: countFeaturesWithoutData(generatedFeatureIndex.records, preview.assignments.keys()),
+    };
   } catch (error) {
     if (preview !== importPreview) return;
     preview.matchError = error.message;
   }
 }
 
-function findCrosswalkCodeColumns(headers) {
-  const fromNames = new Set([
-    "from", "from code", "from id", "old", "old code", "old id", "old geoid", "old fips",
-    "source", "source code", "source id", "source geoid", "source fips", "origin", "origin code",
-  ]);
-  const toNames = new Set([
-    "to", "to code", "to id", "new", "new code", "new id", "new geoid", "new fips",
-    "target", "target code", "target id", "target geoid", "target fips", "destination", "destination code",
-  ]);
-  const fromColumn = headers.findIndex((header) => fromNames.has(header));
-  const toColumn = headers.findIndex((header) => toNames.has(header));
-  return fromColumn >= 0 && toColumn >= 0 && fromColumn !== toColumn
-    ? { fromColumn, toColumn }
-    : null;
-}
 
 function resolveCategory(value) {
   const normalized = normalizeLookup(value);
@@ -2359,72 +2109,24 @@ async function recodeImportWithCrosswalk() {
   elements.recodeImportButton.disabled = true;
   elements.recodeImportButton.setAttribute("aria-busy", "true");
   try {
-    const columns = findCrosswalkCodeColumns(rows[0].map(normalizeLookup));
-    if (!columns) throw new Error("The crosswalk table has no recognized source and target code columns.");
-    const { fromColumn, toColumn } = columns;
     const hint = (importPreview.matchResult?.hints || []).find((item) => item.crosswalk === crosswalkId);
-    const oldData = hint?.direction === "old-data";
-    const sourceColumn = oldData ? fromColumn : toColumn;
-    const targetColumn = oldData ? toColumn : fromColumn;
-    const translations = new Map();
-    for (const row of rows.slice(1)) {
-      const source = normalizeCrosswalkCode(row[sourceColumn], importPreview.codePrefix);
-      const target = row[targetColumn]?.trim();
-      if (!source || !target) continue;
-      if (!translations.has(source)) translations.set(source, new Set());
-      translations.get(source).add(target);
-    }
-
-    const nextAssignments = new Map(importPreview.assignments);
-    const failures = [];
-    const failedRows = new Set();
-    const recoded = [];
-    for (const record of importPreview.unmappedRecords) {
-      const source = normalizeCrosswalkCode(record.rawCode, importPreview.codePrefix);
-      const targets = [...(translations.get(source) || [])];
-      if (!targets.length) {
-        failures.push(`Record ${record.recordNumber}: no crosswalk rule for “${record.rawCode}”.`);
-        failedRows.add(record.recordNumber);
-        continue;
-      }
-      const targetKeys = [];
-      for (const target of targets) {
-        const resolved = resolveImportTarget(target);
-        if (resolved.status === "matched") targetKeys.push(resolved.assignmentKey);
-      }
-      if (!targetKeys.length) {
-        failures.push(`Record ${record.recordNumber}: crosswalk targets for “${record.rawCode}” are not on this map.`);
-        failedRows.add(record.recordNumber);
-        continue;
-      }
-      let conflict = false;
-      for (const key of targetKeys) {
-        if (nextAssignments.has(key) && nextAssignments.get(key) !== record.categoryIndex) {
-          failures.push(`${assignmentLabel(key)} receives conflicting categories through ${crosswalkId}.`);
-          conflict = true;
-        }
-      }
-      if (conflict) {
-        failedRows.add(record.recordNumber);
-        continue;
-      }
-      for (const key of targetKeys) {
-        nextAssignments.set(key, record.categoryIndex);
-        recoded.push(key);
-      }
-    }
-    importPreview.assignments = nextAssignments;
-    importPreview.unmappedRecords = importPreview.unmappedRecords.filter((record) => failedRows.has(record.recordNumber));
-    importPreview.crosswalkIssues = failures;
-    const importKeys = new Set(importPreview.assignments.keys());
-    importPreview.matchResult.mapWithoutData = generatedFeatureIndex.records.filter((feature) =>
-      !importKeys.has(feature.assignmentKey) &&
-      !(feature.countryCode && importKeys.has(`country:${feature.countryCode.toLowerCase()}`)) &&
-      !(Array.isArray(feature.units) && feature.units.some((unit) => importKeys.has(`unit:${String(unit).toUpperCase()}`))),
-    ).length;
-    importPreview.recodeSummary = failures.length
+    const result = recodeWithCrosswalk({
+      crosswalkId,
+      rows,
+      direction: hint?.direction,
+      codePrefix: importPreview.codePrefix,
+      records: importPreview.unmappedRecords,
+      assignments: importPreview.assignments,
+      resolveTarget: (code) => resolveImportTarget(code),
+      label: assignmentLabel,
+    });
+    importPreview.assignments = result.assignments;
+    importPreview.unmappedRecords = importPreview.unmappedRecords.filter((record) => result.failedRows.has(record.recordNumber));
+    importPreview.crosswalkIssues = result.failures;
+    importPreview.matchResult.mapWithoutData = countFeaturesWithoutData(generatedFeatureIndex.records, importPreview.assignments.keys());
+    importPreview.recodeSummary = result.failures.length
       ? "Boundary splits or category conflicts need a manual decision."
-      : `${new Set(recoded).size} map regions recoded from ${crosswalkId}.`;
+      : `${result.recoded} map regions recoded from ${crosswalkId}.`;
   } catch (error) {
     importPreview.crosswalkIssues = [`Could not apply the crosswalk: ${error.message}`];
   } finally {
@@ -2453,67 +2155,7 @@ function applyImport() {
   showToast(`${appliedPreview.assignments.size} areas assigned`);
 }
 
-function parseDelimitedText(text) {
-  const source = String(text || "").replace(/^\uFEFF/, "");
-  if (!source.trim()) return [];
 
-  const delimiter = chooseDelimiter(source);
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    if (character === '"') {
-      if (quoted && source[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (!quoted && delimiter && character === delimiter) {
-      row.push(value.trim());
-      value = "";
-    } else if (!quoted && (character === "\n" || character === "\r")) {
-      row.push(value.trim());
-      if (row.some((cell) => cell)) rows.push(row);
-      row = [];
-      value = "";
-      if (character === "\r" && source[index + 1] === "\n") index += 1;
-    } else {
-      value += character;
-    }
-  }
-
-  row.push(value.trim());
-  if (row.some((cell) => cell)) rows.push(row);
-  return rows;
-}
-
-function chooseDelimiter(text) {
-  const counts = new Map([",", ";", "\t"].map((delimiter) => [delimiter, 0]));
-  let quoted = false;
-  let records = 0;
-
-  for (let index = 0; index < text.length && records < 20; index += 1) {
-    const character = text[index];
-    if (character === '"') {
-      if (quoted && text[index + 1] === '"') index += 1;
-      else quoted = !quoted;
-    } else if (!quoted) {
-      if (counts.has(character)) counts.set(character, counts.get(character) + 1);
-      if (character === "\n" || character === "\r") {
-        records += 1;
-        if (character === "\r" && text[index + 1] === "\n") index += 1;
-      }
-    }
-  }
-
-  const candidates = [...counts].map(([delimiter, count]) => ({ delimiter, count }));
-  const winner = candidates.sort((a, b) => b.count - a.count)[0];
-  return winner.count ? winner.delimiter : null;
-}
 
 function detectRegionColumn(rows, excludedColumn = null) {
   const maxColumns = Math.max(1, ...rows.slice(0, 30).map((row) => row.length));
@@ -2554,15 +2196,6 @@ function resolveCountry(value) {
   return lookupToCode.get(normalizeLookup(value)) || null;
 }
 
-function normalizeLookup(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
 
 function looksLikeHeader(value) {
   const normalized = normalizeLookup(value);
@@ -2646,27 +2279,21 @@ function hasPendingMapPreview() {
   return true;
 }
 
-function createExportSvg() {
-  const clone = svgElement.cloneNode(true);
-  clone.removeAttribute("aria-hidden");
-  clone.removeAttribute("focusable");
-  clone.setAttribute("width", String(Math.round(currentMapDimensions.width)));
-  clone.setAttribute("height", String(Math.round(currentMapDimensions.height)));
-  clone.querySelectorAll("[data-assignment-key]").forEach((shape) => {
-    ["data-assignment-key", "data-country-code", "data-region-code", "data-region-name", "data-parent-name", "data-region-units"]
-      .forEach((attribute) => shape.removeAttribute(attribute));
-    shape.classList.remove("is-highlighted", "is-located");
-  });
-  clone.querySelectorAll(".is-highlighted, .is-located").forEach((shape) =>
-    shape.classList.remove("is-highlighted", "is-located"),
-  );
 
-  removeMapAnnotations(clone);
-  const titleSlot = getAutoTitleSlot();
-  if (state.exportOptions.legendEnabled) addLegendToSvg(clone, titleSlot);
-  if (state.exportOptions.title.trim()) addTitleToSvg(clone, titleSlot);
-  if (activeMap.isGenerated) addExportAttribution(clone);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
+/** What the export (and the live legend and title) are drawn from. */
+function exportContext() {
+  return {
+    palette: state.palette,
+    exportOptions: state.exportOptions,
+    viewBox: currentMapViewBox,
+    isGenerated: Boolean(activeMap.isGenerated),
+    dataset: activeMap.dataset,
+    metadata: activeMapMetadata,
+  };
+}
+
+function createExportSvg() {
+  return buildExportSvg(svgElement, exportContext());
 }
 
 function exportFilename(extension) {
@@ -2703,7 +2330,7 @@ async function renderExportCanvas() {
 
 function getRasterExportDimensions() {
   const maximumDimension = 4096;
-  const attribution = activeMap.isGenerated ? getExportAttributionLayout() : null;
+  const attribution = activeMap.isGenerated ? getExportAttributionLayout(exportContext()) : null;
   const height = currentMapDimensions.height + (attribution?.extraHeight || 0);
   const scale = Math.min(1, maximumDimension / Math.max(currentMapDimensions.width, height));
   return {
@@ -2748,225 +2375,12 @@ async function runRasterExport(button, action) {
   }
 }
 
-function addLegendToSvg(svg, reservedSlot = null) {
-  const namespace = "http://www.w3.org/2000/svg";
-  const legendWidth = 570;
-  const legendHeight = 92 + state.palette.length * 54;
-  const { width, height } = currentMapDimensions;
-  const scale = Math.min(
-    1,
-    Math.max(
-      0.5,
-      Math.min((width * 0.32) / legendWidth, (height * 0.3) / legendHeight),
-    ),
-  );
-  const titleMetrics = getExportTitleMetrics();
-  const autoLegendSlot = activeMap.isGenerated && state.exportOptions.legendPosition === "auto"
-    ? selectAutoLegendSlot(activeMapMetadata, legendWidth * scale, legendHeight * scale,
-        { excludeSlots: reservedSlot ? [reservedSlot] : [] })
-    : null;
-  const position = calculateAnchoredPosition(
-    state.exportOptions.legendPosition,
-    currentMapViewBox,
-    legendWidth * scale,
-    legendHeight * scale,
-    {
-      topInset:
-        titleMetrics && state.exportOptions.titlePosition === "top"
-          ? titleMetrics.fontSize * 1.45
-          : 0,
-      bottomInset:
-        titleMetrics && state.exportOptions.titlePosition === "bottom"
-          ? titleMetrics.fontSize * 1.45
-          : 0,
-      autoLegendSlot,
-    },
-  );
-  const textColor = state.exportOptions.legendTextColor;
-  const borderColor = readableTextColor(state.exportOptions.legendBackground);
-  const legend = document.createElementNS(namespace, "g");
-  legend.setAttribute("id", "maphue-legend");
-  legend.setAttribute("transform", `translate(${position.x} ${position.y}) scale(${scale})`);
-  legend.setAttribute("pointer-events", "none");
 
-  const backdrop = document.createElementNS(namespace, "rect");
-  backdrop.setAttribute("width", String(legendWidth));
-  backdrop.setAttribute("height", String(legendHeight));
-  backdrop.setAttribute("rx", "12");
-  backdrop.setAttribute("fill", state.exportOptions.legendBackground);
-  backdrop.setAttribute("fill-opacity", String(state.exportOptions.legendOpacity));
-  backdrop.setAttribute("stroke", borderColor);
-  backdrop.setAttribute("stroke-opacity", String(state.exportOptions.legendOpacity));
-  backdrop.setAttribute("stroke-width", "2");
-  legend.append(backdrop);
 
-  const legendTitle = document.createElementNS(namespace, "text");
-  legendTitle.setAttribute("x", "28");
-  legendTitle.setAttribute("y", "42");
-  legendTitle.setAttribute("font-family", activeMap.isGenerated ? "sans-serif" : "Georgia, serif");
-  legendTitle.setAttribute("font-size", "25");
-  legendTitle.setAttribute("font-weight", "700");
-  legendTitle.setAttribute("fill", textColor);
-  legendTitle.textContent = "Legend";
-  legend.append(legendTitle);
 
-  state.palette.forEach((item, index) => {
-    const y = 76 + index * 54;
-    const swatch = document.createElementNS(namespace, "rect");
-    swatch.setAttribute("x", "28");
-    swatch.setAttribute("y", String(y));
-    swatch.setAttribute("width", "28");
-    swatch.setAttribute("height", "28");
-    swatch.setAttribute("rx", "4");
-    swatch.setAttribute("fill", item.color);
-    legend.append(swatch);
 
-    const text = document.createElementNS(namespace, "text");
-    text.setAttribute("x", "72");
-    text.setAttribute("y", String(y + 22));
-    text.setAttribute("font-family", "sans-serif");
-    text.setAttribute("font-size", "20");
-    text.setAttribute("fill", textColor);
-    text.textContent = item.label || `Category ${index + 1}`;
-    legend.append(text);
-  });
-  svg.append(legend);
-}
 
-function getExportTitleMetrics() {
-  const text = state.exportOptions.title.trim();
-  if (!text) return null;
 
-  const { width, height } = currentMapDimensions;
-  const preferredSize = Math.min(68, Math.max(28, width * 0.032, height * 0.04));
-  const fittedSize = (width * 0.88) / Math.max(1, text.length * 0.56);
-  return {
-    text,
-    fontSize: Math.max(16, Math.min(preferredSize, fittedSize)),
-  };
-}
-
-function addTitleToSvg(svg, autoSlot = null) {
-  const namespace = "http://www.w3.org/2000/svg";
-  const metrics = getExportTitleMetrics();
-  if (!metrics) return;
-
-  const [minX, minY, width, height] = currentMapViewBox;
-  const margin = Math.min(width, height) * 0.025;
-  const autoTitle = activeMap.isGenerated && state.exportOptions.titlePosition === "auto" && autoSlot;
-  const top = state.exportOptions.titlePosition !== "bottom";
-  const title = document.createElementNS(namespace, "text");
-  title.setAttribute("id", "maphue-title");
-  title.setAttribute("pointer-events", "none");
-  title.setAttribute("x", String(autoTitle ? minX + autoSlot.x + autoSlot.width / 2 : minX + width / 2));
-  title.setAttribute("y", String(autoTitle
-    ? minY + autoSlot.y + (autoSlot.height + metrics.fontSize * 0.7) / 2
-    : top ? minY + margin + metrics.fontSize : minY + height - margin));
-  title.setAttribute("text-anchor", "middle");
-  title.setAttribute("font-family", activeMap.isGenerated ? "sans-serif" : "Georgia, serif");
-  title.setAttribute("font-size", String(metrics.fontSize));
-  title.setAttribute("font-weight", "700");
-  title.setAttribute("fill", "#18211d");
-  title.setAttribute("stroke", "#ffffff");
-  title.setAttribute("stroke-opacity", "0.9");
-  title.setAttribute("stroke-width", String(Math.max(2, metrics.fontSize * 0.09)));
-  title.setAttribute("paint-order", "stroke fill");
-  title.textContent = metrics.text;
-  svg.append(title);
-}
-
-function getAutoTitleSlot() {
-  const metrics = getExportTitleMetrics();
-  if (!activeMap.isGenerated || !metrics || state.exportOptions.titlePosition !== "auto") return null;
-  const width = Math.min(currentMapDimensions.width * 0.88, metrics.text.length * metrics.fontSize * 0.56);
-  return selectAutoLegendSlot(activeMapMetadata, Math.max(metrics.fontSize * 3, width), metrics.fontSize * 1.5);
-}
-
-function getExportAttributionLayout() {
-  const metadata = activeMapMetadata || {};
-  const lines = [];
-  if (metadata.credit) lines.push(`Data credit: ${metadata.credit}`);
-  else lines.push(`Map data: ${activeMap.dataset}`);
-  const licence = [metadata.licence, metadata.shareAlike ? "share-alike terms apply" : ""]
-    .filter(Boolean).join(" · ");
-  if (licence) lines.push(`Licence: ${licence}`);
-  if (metadata.boundaryYear) lines.push(`Boundary year: ${metadata.boundaryYear}`);
-  const fontSize = Math.min(18, Math.max(10, currentMapDimensions.width * 0.011));
-  const maximumCharacters = Math.max(24, Math.floor(currentMapDimensions.width / (fontSize * 0.58)));
-  const wrapped = lines.flatMap((line) => wrapAttributionLine(line, maximumCharacters));
-  const visibleLines = wrapped.slice(0, 3);
-  if (wrapped.length > 3) visibleLines[2] = `${visibleLines[2].slice(0, Math.max(1, maximumCharacters - 1))}…`;
-  const lineHeight = fontSize * 1.35;
-  return {
-    lines: visibleLines,
-    fontSize,
-    lineHeight,
-    extraHeight: Math.ceil(16 + visibleLines.length * lineHeight),
-    description: [
-      metadata.credit && `Credit: ${metadata.credit}`,
-      metadata.licence && `Licence: ${metadata.licence}`,
-      metadata.licenceUrl && `Licence URL: ${metadata.licenceUrl}`,
-      metadata.shareAlike && "Share-alike conditions apply to derived maps.",
-      metadata.boundaryYear && `Boundary year: ${metadata.boundaryYear}`,
-      metadata.url && `Canonical map URL: ${metadata.url}`,
-    ].filter(Boolean).join(". "),
-  };
-}
-
-function wrapAttributionLine(value, maximumCharacters) {
-  const words = String(value).split(/\s+/);
-  const lines = [];
-  let line = "";
-  for (const word of words) {
-    if (line && `${line} ${word}`.length > maximumCharacters) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? `${line} ${word}` : word;
-    }
-  }
-  if (line) lines.push(line);
-  return lines.length ? lines : [""];
-}
-
-function addExportAttribution(svg) {
-  const namespace = "http://www.w3.org/2000/svg";
-  const layout = getExportAttributionLayout();
-  const description = document.createElementNS(namespace, "desc");
-  description.setAttribute("id", "maphue-attribution");
-  description.textContent = layout.description || `Map data from ${activeMap.dataset}.`;
-  svg.append(description);
-
-  const [minX, minY, width, height] = currentMapViewBox;
-  const extraHeight = layout.extraHeight;
-  svg.setAttribute("viewBox", [minX, minY, width, height + extraHeight].join(" "));
-  svg.setAttribute("width", String(Math.round(width)));
-  svg.setAttribute("height", String(Math.round(height + extraHeight)));
-  const backdrop = document.createElementNS(namespace, "rect");
-  backdrop.setAttribute("id", "maphue-attribution-background");
-  backdrop.setAttribute("x", String(minX));
-  backdrop.setAttribute("y", String(minY + height));
-  backdrop.setAttribute("width", String(width));
-  backdrop.setAttribute("height", String(extraHeight));
-  backdrop.setAttribute("fill", "#fffefa");
-  svg.append(backdrop);
-
-  const text = document.createElementNS(namespace, "text");
-  text.setAttribute("id", "maphue-attribution-line");
-  text.setAttribute("x", String(minX + Math.min(width, height) * 0.025));
-  text.setAttribute("y", String(minY + height + 9 + layout.fontSize));
-  text.setAttribute("font-family", "sans-serif");
-  text.setAttribute("font-size", String(layout.fontSize));
-  text.setAttribute("fill", "#18211d");
-  layout.lines.forEach((line, index) => {
-    const span = document.createElementNS(namespace, "tspan");
-    span.setAttribute("x", String(minX + Math.min(width, height) * 0.025));
-    if (index) span.setAttribute("dy", String(layout.lineHeight));
-    span.textContent = line;
-    text.append(span);
-  });
-  svg.append(text);
-}
 
 function exportAssignmentsCsv() {
   if (hasPendingMapPreview()) return;
@@ -3021,6 +2435,3 @@ function showToast(message) {
   }, 2_600);
 }
 
-function validHex(value) {
-  return /^#[0-9a-f]{6}$/i.test(String(value));
-}

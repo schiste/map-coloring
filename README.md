@@ -44,6 +44,21 @@ python3 -m http.server 8080
 
 Then visit <http://localhost:8080>.
 
+## Tests
+
+```sh
+npm ci && npm test      # unit tests (Node 22)
+test/rsvg/check.sh      # an exported map in librsvg and Chromium (needs Docker)
+```
+
+The Map Generator tests run on recorded API responses in `test/fixtures/mapgen/`: the SVG
+contract fixture, France and world map metadata, French and US county features, and the US
+county crosswalks (Alaska's Valdez-Cordova split, Connecticut's 2022 planning regions).
+`test/fixtures/mapgen/record.sh` records them again. `test/rsvg/check.sh` renders an exported
+coloured map (legend, title, data credit) with librsvg, the renderer Wikimedia Commons uses,
+and with Chromium, and compares both with `test/rsvg/france-export.png`; `--update` rewrites
+the reference. CI runs both on every push.
+
 ## Deploy to Wikimedia Toolforge
 
 The repository includes a dry-run-first deployment workflow for the existing `maphue` tool.

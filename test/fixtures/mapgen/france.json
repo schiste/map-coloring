@@ -1,0 +1,124 @@
+{
+  "boundaryYear": null,
+  "center": [
+    2.213389499999977,
+    46.2267265
+  ],
+  "contract": 1,
+  "credit": "Natural Earth (de facto view)",
+  "dataset": "ne-admin1",
+  "height": 1484,
+  "insets": [
+    {
+      "ids": [
+        "FR-GF"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-GP",
+        "FR-MQ"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-RE"
+      ],
+      "projection": "laea"
+    },
+    {
+      "ids": [
+        "FR-YT"
+      ],
+      "projection": "laea"
+    }
+  ],
+  "legendSlots": [
+    {
+      "height": 894.0,
+      "landShare": 0.286,
+      "position": "middle-right",
+      "width": 270.0,
+      "x": 1326.0,
+      "y": 294.0
+    },
+    {
+      "height": 432.0,
+      "landShare": 0.313,
+      "position": "middle-left",
+      "width": 222.0,
+      "x": 6.0,
+      "y": 528.0
+    },
+    {
+      "height": 162.0,
+      "landShare": 0.482,
+      "position": "bottom-center",
+      "width": 570.0,
+      "x": 516.0,
+      "y": 1320.0
+    },
+    {
+      "height": 1290.0,
+      "landShare": 0.202,
+      "position": "bottom-right",
+      "width": 54.0,
+      "x": 1542.0,
+      "y": 192.0
+    },
+    {
+      "height": 54.0,
+      "landShare": 0.629,
+      "position": "top-center",
+      "width": 1164.0,
+      "x": 216.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.31,
+      "position": "top-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.321,
+      "position": "top-right",
+      "width": 0.0,
+      "x": 1596.0,
+      "y": 6.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 1.0,
+      "position": "center",
+      "width": 0.0,
+      "x": 798.0,
+      "y": 744.0
+    },
+    {
+      "height": 0.0,
+      "landShare": 0.732,
+      "position": "bottom-left",
+      "width": 0.0,
+      "x": 6.0,
+      "y": 1482.0
+    }
+  ],
+  "licence": "Public domain",
+  "licenceUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "outsideFrame": [],
+  "projection": "laea",
+  "region": "FRA",
+  "regions": 101,
+  "release": "natural-earth-vector@ca96624",
+  "sha1": "71e4c36406fc8e56c647a9ef8f6d7eaf1dbd20b4",
+  "shareAlike": false,
+  "sourceRelease": "natural-earth-vector@ca96624",
+  "url": "/api/v1/maps/ne-admin1/FRA.json?labels=true&target=commons&width=1600",
+  "width": 1600
+}

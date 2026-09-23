@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # The page's own scripts parse as modules.
+      - run: for f in js/*.js; do node --check "$f"; done
+
+  # An exported coloured Map Generator map renders the same in librsvg
+  # (Wikimedia Commons) and Chromium, and as the reference image.
+  rsvg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: test/rsvg/check.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: rsvg-renders
+          path: test/rsvg/out/*.png

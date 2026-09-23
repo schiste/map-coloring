@@ -1,3 +1,5 @@
 .DS_Store
 .chau7/
 output/
+node_modules/
+test/rsvg/out/

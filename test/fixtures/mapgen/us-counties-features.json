@@ -1,0 +1,353 @@
+[
+ {
+  "code": "US-02013",
+  "country": "us",
+  "name": "Aleutians East",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02016",
+  "country": "us",
+  "name": "Aleutians West",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02020",
+  "country": "us",
+  "name": "Anchorage",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02050",
+  "country": "us",
+  "name": "Bethel",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02060",
+  "country": "us",
+  "name": "Bristol Bay",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02068",
+  "country": "us",
+  "name": "Denali",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02070",
+  "country": "us",
+  "name": "Dillingham",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02090",
+  "country": "us",
+  "name": "Fairbanks North Star",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02100",
+  "country": "us",
+  "name": "Haines",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02105",
+  "country": "us",
+  "name": "Hoonah-Angoon",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02110",
+  "country": "us",
+  "name": "Juneau",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02122",
+  "country": "us",
+  "name": "Kenai Peninsula",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02130",
+  "country": "us",
+  "name": "Ketchikan Gateway",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02150",
+  "country": "us",
+  "name": "Kodiak Island",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02164",
+  "country": "us",
+  "name": "Lake and Peninsula",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02170",
+  "country": "us",
+  "name": "Matanuska-Susitna",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02180",
+  "country": "us",
+  "name": "Nome",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02185",
+  "country": "us",
+  "name": "North Slope",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02188",
+  "country": "us",
+  "name": "Northwest Arctic",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02195",
+  "country": "us",
+  "name": "Petersburg",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02198",
+  "country": "us",
+  "name": "Prince of Wales-Hyder",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02220",
+  "country": "us",
+  "name": "Sitka",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02230",
+  "country": "us",
+  "name": "Skagway",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02240",
+  "country": "us",
+  "name": "Southeast Fairbanks",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02261",
+  "country": "us",
+  "name": "Valdez-Cordova",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02270",
+  "country": "us",
+  "name": "Kusilvak",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02275",
+  "country": "us",
+  "name": "Wrangell",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02282",
+  "country": "us",
+  "name": "Yakutat",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-02290",
+  "country": "us",
+  "name": "Yukon-Koyukuk",
+  "names": {},
+  "parent": "US-02",
+  "parentName": "Alaska",
+  "units": []
+ },
+ {
+  "code": "US-09001",
+  "country": "us",
+  "name": "Fairfield",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09003",
+  "country": "us",
+  "name": "Hartford",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09005",
+  "country": "us",
+  "name": "Litchfield",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09007",
+  "country": "us",
+  "name": "Middlesex",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09009",
+  "country": "us",
+  "name": "New Haven",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09011",
+  "country": "us",
+  "name": "New London",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09013",
+  "country": "us",
+  "name": "Tolland",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-09015",
+  "country": "us",
+  "name": "Windham",
+  "names": {},
+  "parent": "US-09",
+  "parentName": "Connecticut",
+  "units": []
+ },
+ {
+  "code": "US-39045",
+  "country": "us",
+  "name": "Fairfield",
+  "names": {},
+  "parent": "US-39",
+  "parentName": "Ohio",
+  "units": []
+ },
+ {
+  "code": "US-45039",
+  "country": "us",
+  "name": "Fairfield",
+  "names": {},
+  "parent": "US-45",
+  "parentName": "South Carolina",
+  "units": []
+ }
+]
