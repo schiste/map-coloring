@@ -561,7 +561,7 @@ a:focus-visible {
 
 .scope-switcher {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--line);
@@ -1458,5 +1458,124 @@ dialog p {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+
+/* Generated maps are a focused creation flow inside the existing map controls. */
+.generated-map-options {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.generated-map-options .section-note {
+  font-size: 10px;
+}
+
+.check-field {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.check-field input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.mapgen-bounds-field[hidden] {
+  display: none;
+}
+
+.mapgen-create-button {
+  width: 100%;
+}
+
+.mapgen-status {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.mapgen-status.is-error {
+  color: var(--red);
+}
+
+.share-alike-note {
+  max-width: 520px;
+  color: var(--amber);
+  font-size: 10px !important;
+  font-weight: 650;
+}
+
+.region-group-heading {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: 6px 4px 5px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--panel-strong);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.position-picker label.has-land::after {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+  content: "";
+}
+
+.legend-position-controls {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.auto-position {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auto-position:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.auto-position:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .scope-switcher button {
+    padding-inline: 4px;
+    font-size: 10px;
   }
 }

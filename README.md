@@ -1,24 +1,32 @@
 # Maphue
 
-A browser-only world map coloring tool built for Wikimedia Toolforge. Click or search for
-countries, choose among blank world maps from Wikimedia Commons, create a custom palette and
-legend, import country lists from CSV, and export publication-ready files.
+A browser-based map coloring studio built for Wikimedia Toolforge. Choose a verified Wikimedia
+Commons map or create a new blank map from Map Generator, color countries or subdivisions,
+import CSV data, and export publication-ready files.
 
-The application has no build step, no runtime dependencies, and sends no map data to a server.
+The application has no build step or bundled runtime dependencies. Coloring assignments and
+imported CSV contents stay in the browser. Creating a generated map sends only the selected
+dataset, area, and rendering options to the public Map Generator API; public crosswalk tables are
+downloaded and compared locally.
 
 ## Features
 
 - Click countries to cycle through 2–8 custom colors
 - Choose verified interactive SVGs from the Commons world-map category
+- Create a blank map from public Map Generator datasets, including world maps, countries, first-level subdivisions, and US counties
+- Set a custom map frame, labels, label languages, border viewpoint, and map theme
 - Switch between world country maps and continent-focused maps
 - Switch between curated Europe and Africa maps while retaining ISO color assignments
 - Read each map's short Commons description and open its source page
-- Search by English name, ISO 3166-1 alpha-2, or alpha-3 code
-- Import pasted text or CSV data with automatic country-column detection
+- Search by country or region name, code, or parent area
+- Color a country across its subdivisions or assign a subdivision/data unit directly
+- Import pasted text or CSV data with automatic country, region, parent, and category-column detection
+- Check boundary-year mismatches against public crosswalks without sending imported codes
 - Assign multiple legend categories in one CSV import with a color-coded map preview and validation
 - Recognize Kosovo by name, `XK`, or the common `XKX` code
 - Edit colors and legend labels with live map updates
-- Place the export legend in nine positions with a custom background color and transparency
+- Place the export legend automatically in Map Generator's reported open areas, or choose a position with land-overlap hints
+- Keep generated-map credit and licence information in SVG, PNG, and PDF exports; see share-alike terms before exporting
 - Add an optional centered title above or below the map
 - Save work automatically in browser storage
 - Export the colored map as SVG, PNG, or PDF with an embedded legend
@@ -64,9 +72,16 @@ webservice template, and starts or restarts the service. The production URL is
 - `data/countries.source.json` comes from
   [ISO-3166-Countries-with-Regional-Codes](https://github.com/lukes/ISO-3166-Countries-with-Regional-Codes)
   and is licensed under CC BY-SA 4.0.
+- Generated maps come from the public [Map Generator API](https://map-generator.toolforge.org/api/v1/),
+  which provides dataset credit, licence, share-alike status, boundary year, SVG contract version,
+  and map geometry. See the [API documentation](https://github.com/schiste/map-generator/blob/main/docs/api.md)
+  for dataset sources and terms.
+- When a CSV contains unmatched region codes, Maphue may download public crosswalk tables from
+  Map Generator and compare them in the browser. CSV rows, names, categories, and assignments are
+  not sent to that service.
 - Application code is licensed under the MIT License; see [LICENSE](LICENSE).
 
-Each source map retains its own boundaries and visibility. Coloring a recognized country applies
-to SVG elements carrying that country's ISO-2 class. Only maps verified to expose selectable ISO
-country groups are listed; new Commons category files must pass that compatibility check before
-being added to the verified allowlist.
+Each source map retains its own boundaries and visibility. Commons maps remain restricted to the
+verified interactive allowlist. Generated maps are accepted only when their SVG declares a
+Maphue-supported Map Generator contract version. Maphue stores the selected generated map's
+canonical URL and rendering choices in browser storage; it does not store a copy of the SVG.

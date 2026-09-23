@@ -1,4 +1,5 @@
 export const LEGEND_POSITIONS = [
+  "auto",
   "top-left",
   "top-center",
   "top-right",
@@ -19,10 +20,17 @@ export function calculateAnchoredPosition(
 ) {
   const [minX, minY, width, height] = viewBox;
   const safePosition = LEGEND_POSITIONS.includes(position) ? position : "bottom-left";
+  if (safePosition === "auto") {
+    const slot = options.autoLegendSlot;
+    if (slot && slot.width >= itemWidth && slot.height >= itemHeight) {
+      return { x: minX + slot.x, y: minY + slot.y };
+    }
+  }
+  const anchoredPosition = safePosition === "auto" ? "bottom-left" : safePosition;
   const [vertical, horizontal] =
-    safePosition === "center"
+    anchoredPosition === "center"
       ? ["center", "center"]
-      : safePosition.split("-");
+      : anchoredPosition.split("-");
   const margin = options.margin ?? Math.min(width, height) * 0.025;
   const topInset = options.topInset ?? 0;
   const bottomInset = options.bottomInset ?? 0;
