@@ -14,7 +14,7 @@ downloaded and compared locally.
 - Click countries to cycle through 2–8 custom colors
 - Choose verified interactive SVGs from the Commons world-map category
 - Create a blank map from one or more areas in public Map Generator datasets, including world maps, countries, first-level subdivisions, and US counties
-- Set a custom map frame, labels, label languages, border viewpoint, and map theme
+- Every setting Map Generator offers (title, caption, size, labels and languages, capitals, neighbour names, projection, frame, point of view, borders, base map colours…), in a form built from its [render options](https://github.com/schiste/map-generator/blob/main/docs/api.md#render-options), so new settings appear without a Maphue update
 - Switch between world country maps and continent-focused maps
 - Switch between curated Europe and Africa maps while retaining ISO color assignments
 - Read each map's short Commons description and open its source page

@@ -30,6 +30,32 @@ export function validHex(value) {
 }
 
 /**
+ * Map settings of a saved generated map, any the API offers (checked
+ * against its description when the form loads): well-formed names with
+ * short text, finite numbers, booleans or short lists, and colours.
+ */
+function savedSettings(spec) {
+  const out = {};
+  for (const [key, value] of Object.entries(spec).slice(0, 80)) {
+    if (!/^[a-z][a-zA-Z]{0,39}$/.test(key)) continue;
+    if (key === "colors") {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const colors = Object.entries(value)
+          .filter(([slot, color]) => /^[a-z][a-zA-Z]{0,39}$/.test(slot) && validHex(color))
+          .slice(0, 20);
+        if (colors.length) out.colors = Object.fromEntries(colors);
+      }
+    } else if (typeof value === "string") out[key] = value.slice(0, 1000);
+    else if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) out[key] = value;
+    else if (Array.isArray(value)) {
+      const items = value.filter((v) => typeof v === "string" || (typeof v === "number" && Number.isFinite(v))).slice(0, 12);
+      if (items.length) out[key] = items.map((v) => (typeof v === "string" ? v.slice(0, 40) : v));
+    }
+  }
+  return out;
+}
+
+/**
  * The saved state in `text`, as the parts of the app state to restore
  * (`current` gives the values of what isn't saved). Returns null when the
  * text isn't a saved state at all, {} when nothing in it is usable.
@@ -88,13 +114,10 @@ export function parseSavedState(text, current = {}) {
           regionName: String(saved.generatedMap.regionName || savedRegions.map((item) => item.name).join(", ") || region).slice(0, 120),
           regions: savedRegions,
           spec: {
+            ...savedSettings(savedSpec),
             target: "commons",
             width: Number.isFinite(savedSpec.width) ? Math.min(4000, Math.max(300, savedSpec.width)) : 1600,
             labels: typeof savedSpec.labels === "boolean" ? savedSpec.labels : true,
-            ...(typeof savedSpec.theme === "string" ? { theme: savedSpec.theme.slice(0, 80) } : {}),
-            ...(typeof savedSpec.worldview === "string" ? { worldview: savedSpec.worldview.slice(0, 80) } : {}),
-            ...(typeof savedSpec.bbox === "string" ? { bbox: savedSpec.bbox.slice(0, 100) } : {}),
-            ...(Array.isArray(savedSpec.languages) ? { languages: savedSpec.languages.filter((value) => typeof value === "string").slice(0, 12) } : {}),
           },
           url: typeof saved.generatedMap.url === "string" ? saved.generatedMap.url.slice(0, 1000) : "",
         };

@@ -20,6 +20,10 @@ get "datasets/ne-admin1/regions/FRA/features" france-features.json
 get "maps/ne-admin1/FRA.svg?width=800&labels=true&target=commons" france-800.svg
 get "maps/ne-admin1/FRA.json?width=800&labels=true&target=commons" france-800.json
 get "crosswalks" crosswalks.json
+# What the settings form is built from.
+get "render-options" render-options.json
+get "themes" themes.json
+get "bbox-presets" bbox-presets.json
 # US counties and crosswalks, trimmed to Alaska (02) and Connecticut (09),
 # plus every Fairfield (a name several states use).
 "$curl" -fsS "$API/datasets/us-counties/regions/USA/features" | python3 -c '

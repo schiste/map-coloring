@@ -155,41 +155,9 @@
                   <p class="mapgen-region-empty" id="mapgen-region-empty" role="status" hidden>No matching areas. Try another name or code.</p>
                 </section>
                 <details class="mapgen-appearance">
-                  <summary>Map appearance <span>Optional</span></summary>
-                  <div class="mapgen-appearance-fields">
-                    <div class="field-group">
-                      <label class="check-field" for="mapgen-labels">
-                        <input id="mapgen-labels" type="checkbox" checked>
-                        <span>Show labels</span>
-                      </label>
-                      <label class="field" for="mapgen-theme">
-                        <span>Map style</span>
-                        <select id="mapgen-theme" disabled>
-                          <option value="">Default</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div class="field-group">
-                      <label class="field" for="mapgen-languages">
-                        <span>Label languages</span>
-                        <input id="mapgen-languages" type="text" placeholder="Optional · en, fr, zh-Hant">
-                      </label>
-                      <label class="field" for="mapgen-worldview">
-                        <span>Border viewpoint</span>
-                        <select id="mapgen-worldview" disabled>
-                          <option value="">Default</option>
-                        </select>
-                      </label>
-                    </div>
-                    <label class="check-field" for="mapgen-custom-bounds">
-                      <input id="mapgen-custom-bounds" type="checkbox">
-                      <span>Use a custom map frame</span>
-                    </label>
-                    <label class="field mapgen-bounds-field" for="mapgen-bounds" hidden>
-                      <span>West, south, east, north</span>
-                      <input id="mapgen-bounds" type="text" inputmode="decimal" placeholder="-10, 35, 32, 72" aria-describedby="mapgen-bounds-help">
-                      <small class="field-help" id="mapgen-bounds-help">Longitude and latitude in decimal degrees.</small>
-                    </label>
+                  <summary>Map settings <span>Optional</span></summary>
+                  <div class="mapgen-appearance-fields" id="mapgen-options">
+                    <p class="field-help">Loading the settings Map Generator offers…</p>
                   </div>
                 </details>
                 <div class="mapgen-create-area">
