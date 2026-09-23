@@ -12,6 +12,17 @@ import {
   PREFERRED_MAP_TITLE,
 } from "./maps.js";
 import { createPdfFromJpeg } from "./pdf.js";
+import {
+  assertSupportedMapgenSvg,
+  buildGeneratedFeatureIndex,
+  collectionFrom,
+  normalizeAssignmentKey,
+  normalizeCrosswalkCode,
+  normalizeMapLookup,
+  resolveGeneratedFeature,
+  selectAutoLegendSlot,
+  slotBounds,
+} from "./map-generator.js";
 
 const STORAGE_KEY = "maphue-state-v1";
 const THEME_STORAGE_KEY = "maphue-theme";
@@ -27,12 +38,12 @@ const DEFAULT_PALETTE = [
 ];
 const DEFAULT_EXPORT_OPTIONS = {
   legendEnabled: true,
-  legendPosition: "bottom-left",
+  legendPosition: "auto",
   legendBackground: "#fffefa",
   legendTextColor: "#18211d",
   legendOpacity: 1,
   title: "",
-  titlePosition: "top",
+  titlePosition: "auto",
 };
 const CSS_REFERENCE_ATTRIBUTES = new Set([
   "clip-path",
@@ -136,6 +147,30 @@ const COUNTRY_HEADER_NAMES = new Set([
   "iso 3166 1 alpha 3",
   "name",
 ]);
+const REGION_CODE_HEADER_NAMES = new Set([
+  "code",
+  "iso 3166 2",
+  "iso 3166 2 code",
+  "fips",
+  "geoid",
+  "region code",
+  "state code",
+  "county code",
+  "department code",
+  "département code",
+]);
+const PARENT_HEADER_NAMES = new Set([
+  "parent",
+  "parent name",
+  "state",
+  "state name",
+  "province",
+  "province name",
+  "region",
+  "region name",
+  "country",
+  "country name",
+]);
 const CATEGORY_HEADER_NAMES = new Set([
   "category",
   "class",
@@ -155,6 +190,7 @@ const state = {
     world: PREFERRED_MAP_TITLE,
     continent: CONTINENT_MAPS[0].title,
   },
+  generatedMap: null,
   palette: DEFAULT_PALETTE.slice(0, 3).map((item) => ({ ...item })),
   assignments: {},
   exportOptions: { ...DEFAULT_EXPORT_OPTIONS },
@@ -170,6 +206,18 @@ let activeMap = FALLBACK_MAP;
 let currentMapViewBox = [0, 0, 2754, 1398];
 let currentMapDimensions = { width: 2754, height: 1398 };
 let mapSwitchRequestId = 0;
+let mapgenSwitchRequestId = 0;
+let mapgenRegionRequestId = 0;
+let mapgenClientPromise = null;
+let mapgenClient = null;
+let mapgenDatasets = [];
+let mapgenRegions = [];
+let mapgenThemes = [];
+let activeGeneratedFeatures = [];
+let generatedFeatureIndex = { records: [], byCode: new Map(), byName: new Map(), byUnit: new Map() };
+let activeMapMetadata = null;
+let crosswalkRowsById = new Map();
+let generationError = "";
 let mapShadowRoot;
 let svgElement;
 let toastTimer;
@@ -194,6 +242,19 @@ const elements = {
   mapDescription: document.querySelector("#map-description"),
   mapCompatibility: document.querySelector("#map-compatibility"),
   mapSourceLink: document.querySelector("#map-source-link"),
+  generatedMapOptions: document.querySelector("#generated-map-options"),
+  mapgenDataset: document.querySelector("#mapgen-dataset"),
+  mapgenRegion: document.querySelector("#mapgen-region"),
+  mapgenLabels: document.querySelector("#mapgen-labels"),
+  mapgenLanguages: document.querySelector("#mapgen-languages"),
+  mapgenWorldview: document.querySelector("#mapgen-worldview"),
+  mapgenTheme: document.querySelector("#mapgen-theme"),
+  mapgenCustomBounds: document.querySelector("#mapgen-custom-bounds"),
+  mapgenBounds: document.querySelector("#mapgen-bounds"),
+  mapgenBoundsField: document.querySelector(".mapgen-bounds-field"),
+  mapgenCreateButton: document.querySelector("#mapgen-create-button"),
+  mapgenStatus: document.querySelector("#mapgen-status"),
+  shareAlikeNote: document.querySelector("#share-alike-note"),
   activeMapName: document.querySelector("#active-map-name"),
   mapDimensions: document.querySelector("#map-dimensions"),
   mapFrame: document.querySelector("#map-frame"),
@@ -205,6 +266,9 @@ const elements = {
   countrySearch: document.querySelector("#country-search"),
   countryList: document.querySelector("#country-list"),
   countryEmpty: document.querySelector("#country-empty"),
+  countriesHeading: document.querySelector("#countries-heading"),
+  regionHelp: document.querySelector("#region-help"),
+  regionSearchLabel: document.querySelector("#region-search-label"),
   paletteSize: document.querySelector("#palette-size"),
   paletteList: document.querySelector("#palette-list"),
   importText: document.querySelector("#import-text"),
@@ -216,11 +280,12 @@ const elements = {
   chooseFileButton: document.querySelector("#choose-file-button"),
   previewImportButton: document.querySelector("#preview-import-button"),
   applyImportButton: document.querySelector("#apply-import-button"),
+  recodeImportButton: document.querySelector("#recode-import-button"),
   cancelImportPreviewButton: document.querySelector("#cancel-import-preview-button"),
   importReport: document.querySelector("#import-report"),
   legendEnabled: document.querySelector("#legend-enabled"),
   legendOptions: document.querySelector("#legend-options"),
-  legendPosition: document.querySelector("#legend-position"),
+  legendPosition: document.querySelector("#legend-position-controls"),
   legendBackground: document.querySelector("#legend-background"),
   legendTextColor: document.querySelector("#legend-text-color"),
   legendOpacity: document.querySelector("#legend-opacity"),
@@ -263,32 +328,57 @@ async function init() {
 
   sourceCountries = countryResponse;
   mapCatalog = [...commonsMaps, ...continentMaps, FALLBACK_MAP];
-  if (!mapsForScope(state.mapScope).length) state.mapScope = "world";
-  const scopedMaps = mapsForScope(state.mapScope);
-  activeMap =
-    scopedMaps.find((map) => map.title === state.mapSelections[state.mapScope]) ||
-    scopedMaps.find((map) => map.title === state.mapTitle) ||
-    scopedMaps[0];
-  state.mapTitle = activeMap.title;
-  state.mapSelections[state.mapScope] = activeMap.title;
-
   let svgText;
-  try {
-    svgText = await fetchMapSvg(activeMap);
-  } catch (error) {
-    if (activeMap.title === FALLBACK_MAP.title) throw error;
-    console.warn(`Could not load ${activeMap.title}; using the bundled map.`, error);
-    activeMap = FALLBACK_MAP;
-    state.mapScope = "world";
-    state.mapTitle = FALLBACK_MAP.title;
-    state.mapSelections.world = FALLBACK_MAP.title;
-    svgText = await fetchMapSvg(FALLBACK_MAP);
+  if (state.mapScope === "generated" && state.generatedMap) {
+    try {
+      const bundle = await fetchGeneratedMap(state.generatedMap);
+      activeMap = bundle.map;
+      activeMapMetadata = bundle.metadata;
+      activeGeneratedFeatures = bundle.features;
+      svgText = bundle.svgText;
+    } catch (error) {
+      console.warn("The saved generated map could not be restored.", error);
+      generationError = `Saved generated map unavailable: ${error.message}`;
+      activeMap = FALLBACK_MAP;
+      activeMapMetadata = null;
+      activeGeneratedFeatures = [];
+      svgText = await fetchMapSvg(FALLBACK_MAP);
+    }
+  } else {
+    if (state.mapScope === "generated") state.mapScope = "world";
+    const scopedMaps = mapsForScope(state.mapScope);
+    activeMap =
+      scopedMaps.find((map) => map.title === state.mapSelections[state.mapScope]) ||
+      scopedMaps.find((map) => map.title === state.mapTitle) ||
+      scopedMaps[0] || FALLBACK_MAP;
+    state.mapTitle = activeMap.title;
+    if (state.mapScope === "world" || state.mapScope === "continent") {
+      state.mapSelections[state.mapScope] = activeMap.title;
+    }
+    try {
+      svgText = await fetchMapSvg(activeMap);
+    } catch (error) {
+      if (activeMap.title === FALLBACK_MAP.title) throw error;
+      console.warn(`Could not load ${activeMap.title}; using the bundled map.`, error);
+      activeMap = FALLBACK_MAP;
+      activeMapMetadata = null;
+      activeGeneratedFeatures = [];
+      state.mapScope = "world";
+      state.mapTitle = FALLBACK_MAP.title;
+      state.mapSelections.world = FALLBACK_MAP.title;
+      svgText = await fetchMapSvg(FALLBACK_MAP);
+    }
   }
+
   mountSvg(svgText);
   buildCountryIndex();
   decorateMap();
   renderAll();
   persistState();
+  loadMapgenCatalog().catch((error) => {
+    console.warn("Map Generator options could not be loaded.", error);
+    setGeneratedStatus(`Map Generator is unavailable. Commons maps still work. ${error.message}`, true);
+  });
 
   elements.mapLoading.hidden = true;
   requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
@@ -303,6 +393,196 @@ function fetchMapSvg(map) {
   return fetch(map.url).then(checkResponse).then((response) => response.text());
 }
 
+async function getMapgenClient() {
+  if (!mapgenClientPromise) {
+    mapgenClientPromise = import("https://map-generator.toolforge.org/api/v1/client.js")
+      .then(({ MapgenClient }) => {
+        const boundedFetch = async (url, init = {}) => {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 45_000);
+          try {
+            return await fetch(url, { ...init, signal: controller.signal });
+          } catch (error) {
+            if (controller.signal.aborted) throw new Error("Map Generator timed out. Try again or keep using Commons maps.");
+            throw error;
+          } finally {
+            window.clearTimeout(timeout);
+          }
+        };
+        mapgenClient = new MapgenClient(undefined, { fetch: boundedFetch });
+        return mapgenClient;
+      })
+      .catch((error) => {
+        mapgenClientPromise = null;
+        throw new Error(`Map Generator client could not load: ${error.message}`);
+      });
+  }
+  return mapgenClientPromise;
+}
+
+async function fetchGeneratedMap(config) {
+  const api = await getMapgenClient();
+  const spec = { target: "commons", width: 1600, ...(config.spec || {}) };
+  const languages = Array.isArray(spec.languages) ? spec.languages : [];
+  const [svgText, metadataPayload, featurePayload] = await Promise.all([
+    api.map(config.dataset, config.region, spec),
+    api.metadata(config.dataset, config.region, spec),
+    api.features(config.dataset, config.region, languages),
+  ]);
+  const metadata = metadataPayload?.metadata || metadataPayload || {};
+  assertSupportedMapgenSvg(svgText);
+  const features = collectionFrom(featurePayload, "features");
+  if (!features.length) throw new Error("This map has no colorable regions.");
+  const regionName = config.regionName || config.region;
+  const datasetName = config.datasetName || config.dataset;
+  const canonicalUrl = metadata.url || api.mapUrl(config.dataset, config.region, spec);
+  const map = {
+    title: `mapgen:${config.dataset}:${config.region}`,
+    name: `${regionName} · ${datasetName}`,
+    description: [
+      metadata.credit,
+      metadata.licence && `Licence: ${metadata.licence}`,
+      metadata.boundaryYear && `Boundaries: ${metadata.boundaryYear}`,
+    ].filter(Boolean).join(" · ") || "Generated blank map from Map Generator.",
+    url: canonicalUrl,
+    thumbnailUrl: "",
+    commonsUrl: canonicalUrl,
+    categoryMap: false,
+    scope: "generated",
+    fallback: false,
+    isGenerated: true,
+    dataset: config.dataset,
+    region: config.region,
+    spec,
+    metadata,
+    features,
+  };
+  return { map, svgText, metadata, features };
+}
+
+async function loadMapgenCatalog() {
+  const api = await getMapgenClient();
+  const [datasetPayload, themePayload] = await Promise.all([api.datasets(), api.themes()]);
+  mapgenDatasets = collectionFrom(datasetPayload, "datasets");
+  mapgenThemes = collectionFrom(themePayload, "themes");
+  renderMapgenCatalog();
+  if (state.generatedMap && state.mapScope === "generated") {
+    elements.mapgenDataset.value = state.generatedMap.dataset;
+    await loadMapgenRegions(state.generatedMap.dataset, state.generatedMap.region);
+    applyGeneratedConfigToForm(state.generatedMap);
+  } else if (elements.mapgenDataset.value) {
+    await loadMapgenRegions(elements.mapgenDataset.value);
+  }
+}
+
+function applyGeneratedConfigToForm(config) {
+  const spec = config.spec || {};
+  elements.mapgenLabels.checked = spec.labels !== false;
+  elements.mapgenLanguages.value = Array.isArray(spec.languages) ? spec.languages.join(", ") : "";
+  elements.mapgenTheme.value = typeof spec.theme === "string" &&
+    [...elements.mapgenTheme.options].some((option) => option.value === spec.theme)
+    ? spec.theme
+    : "";
+  elements.mapgenWorldview.value = typeof spec.worldview === "string" &&
+    [...elements.mapgenWorldview.options].some((option) => option.value === spec.worldview)
+    ? spec.worldview
+    : "";
+
+  const bounds = String(spec.bbox || "").split(/[\s,]+/).filter(Boolean).map(Number);
+  const validBounds = bounds.length === 4 && bounds.every(Number.isFinite) &&
+    bounds[0] >= -180 && bounds[2] <= 180 && bounds[1] >= -90 && bounds[3] <= 90 &&
+    bounds[0] < bounds[2] && bounds[1] < bounds[3];
+  elements.mapgenCustomBounds.checked = validBounds;
+  elements.mapgenBoundsField.hidden = !validBounds;
+  elements.mapgenBounds.value = validBounds ? bounds.join(", ") : "";
+}
+
+function renderMapgenCatalog() {
+  const previous = mapgenDatasets.some((dataset) => dataset.id === elements.mapgenDataset.value)
+    ? elements.mapgenDataset.value
+    : state.generatedMap?.dataset || "";
+  elements.mapgenDataset.replaceChildren(...mapgenDatasets.map((dataset) => {
+    const option = document.createElement("option");
+    option.value = dataset.id;
+    option.textContent = `${dataset.title || dataset.id} · ${dataset.level || "map"}`;
+    return option;
+  }));
+  elements.mapgenDataset.disabled = mapgenDatasets.length === 0;
+  if (mapgenDatasets.some((dataset) => dataset.id === previous)) {
+    elements.mapgenDataset.value = previous;
+  }
+
+  const themeRows = mapgenThemes.map((theme) => typeof theme === "string"
+    ? { id: theme, title: theme }
+    : { id: theme.id || theme.name || theme.title, title: theme.title || theme.name || theme.id });
+  elements.mapgenTheme.replaceChildren(
+    new Option("Default", ""),
+    ...themeRows.filter((theme) => theme.id).map((theme) => new Option(theme.title, theme.id)),
+  );
+  elements.mapgenTheme.disabled = themeRows.length === 0;
+  elements.mapgenCreateButton.disabled = mapgenDatasets.length === 0;
+  const dataset = mapgenDatasets.find((item) => item.id === elements.mapgenDataset.value);
+  renderMapgenOptionsForDataset(dataset);
+}
+
+async function loadMapgenRegions(datasetId, preferredRegion = "") {
+  const requestId = ++mapgenRegionRequestId;
+  mapgenRegions = [];
+  elements.mapgenRegion.disabled = true;
+  elements.mapgenCreateButton.disabled = true;
+  elements.mapgenRegion.replaceChildren(new Option("Loading areas…", ""));
+  const api = await getMapgenClient();
+  const regions = collectionFrom(await api.regions(datasetId), "regions");
+  if (requestId !== mapgenRegionRequestId || elements.mapgenDataset.value !== datasetId) return;
+  mapgenRegions = regions;
+  elements.mapgenRegion.replaceChildren(...regions.map((region) => {
+    const option = document.createElement("option");
+    option.value = region.code;
+    option.textContent = region.name || region.code;
+    return option;
+  }));
+  elements.mapgenRegion.disabled = regions.length === 0;
+  if (regions.some((region) => region.code === preferredRegion)) {
+    elements.mapgenRegion.value = preferredRegion;
+  }
+  elements.mapgenCreateButton.disabled = regions.length === 0;
+  renderMapgenOptionsForDataset(mapgenDatasets.find((item) => item.id === datasetId));
+}
+
+function renderMapgenOptionsForDataset(dataset) {
+  const worldviews = Array.isArray(dataset?.worldviews) ? dataset.worldviews : [];
+  elements.mapgenWorldview.replaceChildren(
+    new Option("Default", ""),
+    ...worldviews.map((view) => new Option(view, view)),
+  );
+  elements.mapgenWorldview.disabled = worldviews.length === 0;
+  const languages = Array.isArray(dataset?.languages) ? dataset.languages : [];
+  elements.mapgenLanguages.placeholder = languages.length
+    ? `Optional · ${languages.slice(0, 4).join(", ")}`
+    : "Optional · en, fr, zh-Hant";
+  const provenance = dataset?.licencePerRegion
+    ? "Each map has its own licence."
+    : [dataset?.licence, dataset?.boundaryYear && `boundaries ${dataset.boundaryYear}`]
+        .filter(Boolean).join(" · ");
+  if (activeMap?.isGenerated && activeMap.dataset === dataset?.id) {
+    const metadata = activeMapMetadata || {};
+    setGeneratedStatus(
+      [metadata.boundaryYear && `Boundary year ${metadata.boundaryYear}`,
+        metadata.licence && `Licence: ${metadata.licence}`].filter(Boolean).join(" · ") ||
+        `${activeGeneratedFeatures.length} map regions ready.`,
+    );
+  } else {
+    setGeneratedStatus(provenance || "");
+  }
+}
+
+function setGeneratedStatus(message, isError = false) {
+  if (!elements.mapgenStatus) return;
+  elements.mapgenStatus.textContent = message;
+  elements.mapgenStatus.classList.toggle("is-error", isError);
+  elements.mapgenStatus.hidden = !message;
+}
+
 async function handleMapSelection() {
   const nextMap = mapCatalog.find((map) => map.title === elements.mapSelect.value);
   if (!nextMap || nextMap.title === activeMap.title) return;
@@ -313,17 +593,33 @@ async function handleMapSelection() {
 async function handleMapScopeSelection(event) {
   const button = event.target.closest("[data-map-scope]");
   const nextScope = button?.dataset.mapScope;
-  if (!nextScope || nextScope === state.mapScope) return;
+  if (!nextScope) return;
+  invalidateImportPreview();
 
-  const scopedMaps = mapsForScope(nextScope);
-  if (!scopedMaps.length) {
-    showToast("Those continent maps could not be loaded from Commons.");
+  if (nextScope === "generated") {
+    state.mapScope = "generated";
+    renderMapPicker();
+    if (state.generatedMap && !activeMap.isGenerated) {
+      await switchToGeneratedMap(state.generatedMap, { restore: true });
+    }
+    if (!mapgenDatasets.length) {
+      loadMapgenCatalog().catch((error) => {
+        console.warn("Map Generator is unavailable.", error);
+        generationError = error.message;
+        setGeneratedStatus(`Map Generator is unavailable. Commons maps still work. ${error.message}`, true);
+      });
+    }
     return;
   }
 
-  invalidateImportPreview();
+  if (nextScope === state.mapScope) return;
+  const scopedMaps = mapsForScope(nextScope);
+  if (!scopedMaps.length) {
+    showToast("Those maps could not be loaded from Commons.");
+    return;
+  }
+
   const previousScope = state.mapScope;
-  state.mapScope = nextScope;
   const nextMap =
     scopedMaps.find((map) => map.title === state.mapSelections[nextScope]) || scopedMaps[0];
   renderMapPicker();
@@ -331,11 +627,120 @@ async function handleMapScopeSelection(event) {
 }
 
 function mapsForScope(scope) {
+  if (scope === "generated") return activeMap?.isGenerated ? [activeMap] : [];
   return mapCatalog.filter((map) => map.scope === scope);
+}
+
+async function handleGeneratedMapCreate() {
+  const dataset = mapgenDatasets.find((item) => item.id === elements.mapgenDataset.value);
+  const region = mapgenRegions.find((item) => item.code === elements.mapgenRegion.value);
+  if (!dataset || !region) {
+    setGeneratedStatus("Choose a boundary dataset and area first.", true);
+    return;
+  }
+
+  const languages = elements.mapgenLanguages.value
+    .split(/[;,]/)
+    .map((language) => language.trim())
+    .filter(Boolean);
+  const spec = {
+    target: "commons",
+    width: 1600,
+    labels: elements.mapgenLabels.checked,
+    ...(languages.length ? { languages } : {}),
+    ...(elements.mapgenTheme.value ? { theme: elements.mapgenTheme.value } : {}),
+    ...(elements.mapgenWorldview.value ? { worldview: elements.mapgenWorldview.value } : {}),
+  };
+  if (elements.mapgenCustomBounds.checked) {
+    const bounds = elements.mapgenBounds.value.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (bounds.length !== 4 || !bounds.every(Number.isFinite)) {
+      setGeneratedStatus("Enter four numbers: west, south, east, north.", true);
+      return;
+    }
+    const [west, south, east, north] = bounds;
+    if (west < -180 || east > 180 || south < -90 || north > 90 || west >= east || south >= north) {
+      setGeneratedStatus("Bounds must be within longitude −180 to 180 and latitude −90 to 90, with west/south before east/north.", true);
+      return;
+    }
+    spec.bbox = bounds.join(",");
+  }
+
+  const config = {
+    dataset: dataset.id,
+    datasetName: dataset.title || dataset.id,
+    region: region.code,
+    regionName: region.name || region.code,
+    spec,
+  };
+  await switchToGeneratedMap(config);
+}
+
+async function switchToGeneratedMap(config, { restore = false } = {}) {
+  const requestId = ++mapgenSwitchRequestId;
+  mapSwitchRequestId += 1;
+  elements.mapScopeButtons.forEach((button) => {
+    button.disabled = false;
+  });
+  elements.mapgenCreateButton.disabled = true;
+  elements.mapgenCreateButton.setAttribute("aria-busy", "true");
+  elements.mapLoading.hidden = false;
+  elements.mapLoading.classList.remove("has-error");
+  const loadingTitle = document.createElement("strong");
+  loadingTitle.textContent = restore ? "Restoring generated map…" : "Creating blank map…";
+  const loadingDetail = document.createElement("span");
+  loadingDetail.textContent = `${config.regionName || config.region} · ${config.datasetName || config.dataset}`;
+  elements.mapLoading.replaceChildren(loadingTitle, loadingDetail);
+  elements.mapContainer.classList.remove("is-ready");
+
+  try {
+    const bundle = await fetchGeneratedMap(config);
+    if (requestId !== mapgenSwitchRequestId) return;
+    activeMap = bundle.map;
+    activeMapMetadata = bundle.metadata;
+    activeGeneratedFeatures = bundle.features;
+    generationError = "";
+    state.mapScope = "generated";
+    state.generatedMap = {
+      dataset: config.dataset,
+      datasetName: config.datasetName || config.dataset,
+      region: config.region,
+      regionName: config.regionName || config.region,
+      spec: bundle.map.spec,
+      url: bundle.metadata.url || bundle.map.url,
+    };
+    state.mapTitle = activeMap.title;
+    mountSvg(bundle.svgText);
+    buildCountryIndex();
+    decorateMap();
+    renderAll();
+    persistState();
+    setGeneratedStatus(
+      [bundle.metadata.boundaryYear && `Boundary year ${bundle.metadata.boundaryYear}`,
+        bundle.metadata.licence && `Licence: ${bundle.metadata.licence}`].filter(Boolean).join(" · ") ||
+        `${bundle.features.length} map regions ready.`,
+    );
+    if (!restore) showToast(`${activeMap.name} created`);
+  } catch (error) {
+    if (requestId !== mapgenSwitchRequestId) return;
+    console.error(error);
+    generationError = error.message;
+    setGeneratedStatus(`Map could not be created. ${error.message}`, true);
+    showToast("Map Generator could not create that map. Your current map is unchanged.");
+  } finally {
+    if (requestId === mapgenSwitchRequestId) {
+      elements.mapLoading.hidden = true;
+      elements.mapgenCreateButton.disabled = mapgenRegions.length === 0;
+      elements.mapgenCreateButton.removeAttribute("aria-busy");
+      requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
+    }
+  }
 }
 
 async function switchToMap(nextMap, options = {}) {
   const requestId = ++mapSwitchRequestId;
+  mapgenSwitchRequestId += 1;
+  elements.mapgenCreateButton.disabled = mapgenRegions.length === 0;
+  elements.mapgenCreateButton.removeAttribute("aria-busy");
   const previousMap = activeMap;
   const previousScope = options.previousScope || state.mapScope;
   const requestedScope = options.scope || state.mapScope;
@@ -357,9 +762,14 @@ async function switchToMap(nextMap, options = {}) {
     const svgText = await fetchMapSvg(nextMap);
     if (requestId !== mapSwitchRequestId) return;
     activeMap = nextMap;
+    activeMapMetadata = null;
+    activeGeneratedFeatures = [];
+    generationError = "";
     state.mapScope = requestedScope;
     state.mapTitle = nextMap.title;
-    state.mapSelections[requestedScope] = nextMap.title;
+    if (requestedScope === "world" || requestedScope === "continent") {
+      state.mapSelections[requestedScope] = nextMap.title;
+    }
     mountSvg(svgText);
     buildCountryIndex();
     decorateMap();
@@ -380,7 +790,7 @@ async function switchToMap(nextMap, options = {}) {
       elements.mapScopeButtons.forEach((button) => {
         button.disabled = false;
       });
-      elements.mapSelect.disabled = mapsForScope(state.mapScope).length < 2;
+      elements.mapSelect.disabled = state.mapScope === "generated" || mapsForScope(state.mapScope).length < 2;
       requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
     }
   }
@@ -411,14 +821,40 @@ function restoreState() {
       state.palette = DEFAULT_PALETTE.slice(0, 3).map((item) => ({ ...item }));
     }
     state.assignments = Object.fromEntries(
-      Object.entries(saved.assignments).filter(
-        ([code, index]) => /^[A-Z]{2}$/.test(code) && Number.isInteger(index),
-      ),
+      Object.entries(saved.assignments)
+        .map(([key, index]) => [normalizeAssignmentKey(key), index])
+        .filter(([key, index]) => key && Number.isInteger(index) && index >= 0 && index < state.palette.length),
     );
+    if (saved.generatedMap && typeof saved.generatedMap === "object") {
+      const dataset = String(saved.generatedMap.dataset || "");
+      const region = String(saved.generatedMap.region || "");
+      if (/^[a-z0-9-]{1,80}$/i.test(dataset) && /^[a-z0-9 _.,:-]{1,120}$/i.test(region)) {
+        const savedSpec = saved.generatedMap.spec && typeof saved.generatedMap.spec === "object"
+          ? saved.generatedMap.spec
+          : {};
+        state.generatedMap = {
+          dataset,
+          datasetName: String(saved.generatedMap.datasetName || dataset).slice(0, 100),
+          region,
+          regionName: String(saved.generatedMap.regionName || region).slice(0, 120),
+          spec: {
+            target: "commons",
+            width: Number.isFinite(savedSpec.width) ? Math.min(4000, Math.max(300, savedSpec.width)) : 1600,
+            labels: typeof savedSpec.labels === "boolean" ? savedSpec.labels : true,
+            ...(typeof savedSpec.theme === "string" ? { theme: savedSpec.theme.slice(0, 80) } : {}),
+            ...(typeof savedSpec.worldview === "string" ? { worldview: savedSpec.worldview.slice(0, 80) } : {}),
+            ...(typeof savedSpec.bbox === "string" ? { bbox: savedSpec.bbox.slice(0, 100) } : {}),
+            ...(Array.isArray(savedSpec.languages) ? { languages: savedSpec.languages.filter((value) => typeof value === "string").slice(0, 12) } : {}),
+          },
+          url: typeof saved.generatedMap.url === "string" ? saved.generatedMap.url.slice(0, 1000) : "",
+        };
+      }
+    }
     if (typeof saved.mapTitle === "string" && /^File:.*\.svg$/i.test(saved.mapTitle)) {
       state.mapTitle = saved.mapTitle;
     }
-    if (saved.mapScope === "continent" || saved.mapScope === "world") {
+    if (saved.mapScope === "continent" || saved.mapScope === "world" ||
+        (saved.mapScope === "generated" && state.generatedMap)) {
       state.mapScope = saved.mapScope;
     }
     if (saved.mapSelections && typeof saved.mapSelections === "object") {
@@ -451,10 +887,9 @@ function restoreState() {
         ? Math.min(1, Math.max(0, savedExportOptions.legendOpacity))
         : DEFAULT_EXPORT_OPTIONS.legendOpacity,
       title: String(savedExportOptions.title || "").slice(0, 120),
-      titlePosition:
-        savedExportOptions.titlePosition === "bottom"
-          ? "bottom"
-          : DEFAULT_EXPORT_OPTIONS.titlePosition,
+      titlePosition: ["auto", "top", "bottom"].includes(savedExportOptions.titlePosition)
+        ? savedExportOptions.titlePosition
+        : DEFAULT_EXPORT_OPTIONS.titlePosition,
     };
   } catch {
     removeStoredValue(STORAGE_KEY);
@@ -491,15 +926,15 @@ function mountSvg(svgText) {
       overflow: visible;
       filter: drop-shadow(0 14px 28px rgb(2 6 23 / 20%));
     }
-    svg [data-country-code] {
+    svg [data-assignment-key] {
       cursor: pointer;
       transition: fill 180ms ease, filter 160ms ease;
     }
-    svg [data-country-code]:hover,
-    svg [data-country-code].is-highlighted {
+    svg [data-assignment-key]:hover,
+    svg [data-assignment-key].is-highlighted {
       filter: brightness(0.9) saturate(1.12) drop-shadow(0 0 3px rgb(2 6 23 / 55%));
     }
-    svg [data-country-code].is-located {
+    svg [data-assignment-key].is-located {
       animation: locate-country 900ms ease both;
     }
     @keyframes locate-country {
@@ -586,27 +1021,21 @@ function parseSvgLength(value) {
 
 function buildCountryIndex() {
   const normalizedCountries = sourceCountries.map((country) => {
-    const alpha2 = country["alpha-2"];
+    const alpha2 = String(country["alpha-2"] || "").toUpperCase();
     return {
       alpha2,
       alpha3: country["alpha-3"],
       name: DISPLAY_NAME_OVERRIDES[alpha2] || country.name,
       sourceName: country.name,
     };
-  });
+  }).filter((country) => country.alpha2);
   if (!normalizedCountries.some((country) => country.alpha2 === "XK")) {
     normalizedCountries.push({ alpha2: "XK", alpha3: "XKX", name: "Kosovo", sourceName: "Kosovo" });
   }
   normalizedCountries.sort((a, b) => a.name.localeCompare(b.name, "en"));
 
   allCountryByCode = new Map(normalizedCountries.map((country) => [country.alpha2, country]));
-  countries = normalizedCountries
-    .filter((country) => findCountryShapes(country.alpha2).length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name, "en"));
-
-  countryByCode = new Map(countries.map((country) => [country.alpha2, country]));
   lookupToCode = new Map();
-
   for (const country of normalizedCountries) {
     for (const value of [country.alpha2, country.alpha3, country.name, country.sourceName]) {
       lookupToCode.set(normalizeLookup(value), country.alpha2);
@@ -616,17 +1045,64 @@ function buildCountryIndex() {
     if (allCountryByCode.has(code)) lookupToCode.set(normalizeLookup(alias), code);
   }
 
+  if (activeMap.isGenerated) {
+    generatedFeatureIndex = buildGeneratedFeatureIndex(activeGeneratedFeatures, (value) =>
+      lookupToCode.get(normalizeLookup(value)) || null,
+    );
+    countries = generatedFeatureIndex.records.map((feature) => ({
+      ...feature,
+      alpha2: feature.countryCode || "",
+      alpha3: feature.countryCode ? allCountryByCode.get(feature.countryCode)?.alpha3 || "" : "",
+      sourceName: feature.name,
+    })).sort((a, b) => {
+      const parent = a.parentName.localeCompare(b.parentName, "en");
+      return parent || a.name.localeCompare(b.name, "en");
+    });
+  } else {
+    generatedFeatureIndex = { records: [], byCode: new Map(), byName: new Map(), byUnit: new Map() };
+    countries = normalizedCountries
+      .filter((country) => findCountryShapes(country.alpha2).length > 0)
+      .map((country) => ({
+        ...country,
+        code: country.alpha2,
+        assignmentKey: `country:${country.alpha2.toLowerCase()}`,
+        parentName: "",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "en"));
+  }
+  countryByCode = new Map(
+    countries.filter((country) => country.alpha2).map((country) => [country.alpha2, country]),
+  );
   state.assignments = Object.fromEntries(
-    Object.entries(state.assignments).filter(
-      ([code, index]) => allCountryByCode.has(code) && index >= 0 && index < state.palette.length,
+    Object.entries(state.assignments).filter(([key, index]) =>
+      normalizeAssignmentKey(key) && Number.isInteger(index) && index >= 0 && index < state.palette.length,
     ),
   );
 }
 
 function decorateMap() {
-  for (const country of countries) {
-    for (const shape of findCountryShapes(country.alpha2)) {
-      shape.dataset.countryCode = country.alpha2;
+  if (activeMap.isGenerated) {
+    for (const shape of svgElement.querySelectorAll("path.mg-land[data-code]")) {
+      const record = generatedFeatureIndex.byCode.get(normalizeLookup(shape.dataset.code))?.[0];
+      if (!record) continue;
+      shape.dataset.assignmentKey = record.assignmentKey;
+      shape.dataset.regionCode = record.code;
+      shape.dataset.regionName = record.name;
+      if (record.countryCode) shape.dataset.countryCode = record.countryCode.toLowerCase();
+      if (record.parentName) shape.dataset.parentName = record.parentName;
+      if (Array.isArray(record.units)) {
+        const units = record.units.map((unit) => String(unit).toUpperCase());
+        shape.dataset.unit = units.join(" ");
+        shape.dataset.regionUnits = units.join(" ");
+      }
+    }
+  } else {
+    for (const country of countries) {
+      for (const shape of findCountryShapes(country.alpha2)) {
+        shape.dataset.countryCode = country.alpha2.toLowerCase();
+        shape.dataset.assignmentKey = country.assignmentKey;
+        shape.dataset.regionName = country.name;
+      }
     }
   }
 
@@ -645,6 +1121,19 @@ function bindStaticEvents() {
     button.addEventListener("click", handleMapScopeSelection),
   );
   elements.mapSelect.addEventListener("change", handleMapSelection);
+  elements.mapgenDataset.addEventListener("change", () => {
+    const datasetId = elements.mapgenDataset.value;
+    renderMapgenOptionsForDataset(mapgenDatasets.find((item) => item.id === datasetId));
+    loadMapgenRegions(datasetId).catch((error) => {
+      if (elements.mapgenDataset.value === datasetId) {
+        setGeneratedStatus(`Areas could not be loaded. ${error.message}`, true);
+      }
+    });
+  });
+  elements.mapgenCustomBounds.addEventListener("change", () => {
+    elements.mapgenBoundsField.hidden = !elements.mapgenCustomBounds.checked;
+  });
+  elements.mapgenCreateButton.addEventListener("click", handleGeneratedMapCreate);
   elements.countrySearch.addEventListener("input", renderCountryList);
   elements.paletteSize.addEventListener("change", handlePaletteSizeChange);
   elements.paletteList.addEventListener("input", handlePaletteInput);
@@ -665,6 +1154,7 @@ function bindStaticEvents() {
   elements.importColor.addEventListener("change", invalidateImportPreview);
   elements.previewImportButton.addEventListener("click", previewImport);
   elements.applyImportButton.addEventListener("click", applyImport);
+  elements.recodeImportButton.addEventListener("click", recodeImportWithCrosswalk);
   elements.cancelImportPreviewButton.addEventListener("click", cancelImportPreview);
   elements.legendEnabled.addEventListener("change", handleExportOptionsInput);
   elements.legendPosition.addEventListener("change", handleExportOptionsInput);
@@ -729,33 +1219,35 @@ function handleDocumentKeyDown(event) {
 }
 
 function handleMapClick(event) {
-  const code = event.target.closest("[data-country-code]")?.dataset.countryCode;
-  if (!code) return;
+  const shape = event.target.closest("[data-assignment-key]");
+  const key = shape?.dataset.assignmentKey;
+  if (!key) return;
 
   if (event.shiftKey) {
-    setCountryColor(code, null);
-    showToast(`${countryByCode.get(code).name} cleared`);
+    setAssignmentColor(key, null);
+    showToast(`${shape.dataset.regionName || key} cleared`);
     return;
   }
 
-  const current = Number.isInteger(state.assignments[code]) ? state.assignments[code] : null;
-  const next = getNextColorIndex(current, state.palette.length);
-  setCountryColor(code, next);
+  const current = getAssignmentIndex(key);
+  setAssignmentColor(key, getNextColorIndex(current, state.palette.length));
 }
 
 function handleMapPointerMove(event) {
-  const code = event.target.closest("[data-country-code]")?.dataset.countryCode;
-  if (!code) {
+  const shape = event.target.closest("[data-assignment-key]");
+  if (!shape) {
     hideTooltip();
     return;
   }
 
-  const country = countryByCode.get(code);
-  const index = importPreview?.mapPreview
-    ? importPreview.assignments.get(code) ?? state.assignments[code]
-    : state.assignments[code];
-  const legend = Number.isInteger(index) ? ` · ${state.palette[index].label}` : "";
-  elements.mapTooltip.textContent = `${country.name} · ${country.alpha2}${legend}`;
+  const key = shape.dataset.assignmentKey;
+  const assignedIndex = importPreview?.mapPreview
+    ? effectiveAssignmentForShape(shape, { ...state.assignments, ...Object.fromEntries(importPreview.assignments) })
+    : effectiveAssignmentForShape(shape);
+  const legend = Number.isInteger(assignedIndex) ? ` · ${state.palette[assignedIndex].label}` : "";
+  const code = shape.dataset.regionCode || shape.dataset.countryCode?.toUpperCase() || "";
+  const parent = shape.dataset.parentName ? ` · ${shape.dataset.parentName}` : "";
+  elements.mapTooltip.textContent = `${shape.dataset.regionName || code}${parent}${code ? ` · ${code}` : ""}${legend}`;
   elements.mapTooltip.style.left = `${event.clientX}px`;
   elements.mapTooltip.style.top = `${event.clientY}px`;
   elements.mapTooltip.hidden = false;
@@ -765,67 +1257,105 @@ function hideTooltip() {
   elements.mapTooltip.hidden = true;
 }
 
-function setCountryColor(code, index, options = {}) {
+function setAssignmentColor(key, index, options = {}) {
+  const normalizedKey = normalizeAssignmentKey(key);
+  if (!normalizedKey) return;
   invalidateImportPreview();
   if (index === null) {
-    delete state.assignments[code];
+    delete state.assignments[normalizedKey];
   } else {
-    state.assignments[code] = index;
+    state.assignments[normalizedKey] = index;
   }
-  paintCountry(code);
+  renderMap();
   renderStatus();
   renderCountryList();
   persistState();
-  if (options.locate) locateCountry(code);
+  if (options.locate) locateAssignment(normalizedKey);
+}
+
+function getAssignmentIndex(key, assignments = state.assignments) {
+  const normalizedKey = normalizeAssignmentKey(key);
+  return normalizedKey && Number.isInteger(assignments[normalizedKey])
+    ? assignments[normalizedKey]
+    : null;
+}
+
+function effectiveAssignmentForShape(shape, assignments = state.assignments) {
+  const directIndex = getAssignmentIndex(shape.dataset.assignmentKey, assignments);
+  if (Number.isInteger(directIndex)) return directIndex;
+  for (const unit of String(shape.dataset.regionUnits || "").split(/\s+/).filter(Boolean)) {
+    const unitIndex = getAssignmentIndex(`unit:${unit}`, assignments);
+    if (Number.isInteger(unitIndex)) return unitIndex;
+  }
+  const countryCode = shape.dataset.countryCode;
+  return countryCode ? getAssignmentIndex(`country:${countryCode}`, assignments) : null;
 }
 
 function paintCountry(code) {
-  const index = state.assignments[code];
+  const key = `country:${String(code).toLowerCase()}`;
+  if (activeMap.isGenerated) {
+    renderMap();
+    return;
+  }
+  const index = getAssignmentIndex(key);
   const color = Number.isInteger(index) ? state.palette[index]?.color : null;
   for (const shape of findCountryShapes(code)) {
-    if (color) {
-      shape.style.setProperty("fill", color, "important");
-    } else {
-      shape.style.removeProperty("fill");
-    }
+    if (color) shape.style.setProperty("fill", color, "important");
+    else shape.style.removeProperty("fill");
   }
 }
 
 function findCountryShapes(code) {
   if (!svgElement) return [];
-  const lowerCode = code.toLowerCase();
+  const lowerCode = String(code).toLowerCase();
+  if (activeMap.isGenerated) {
+    return [...svgElement.querySelectorAll("[data-country-code]")]
+      .filter((shape) => shape.dataset.countryCode === lowerCode);
+  }
   return [
     ...svgElement.querySelectorAll(
-      `[class~="${lowerCode}"], [id="${lowerCode}"], [id="${code.toUpperCase()}"]`,
+      `[class~="${lowerCode}"], [id="${lowerCode}"], [id="${String(code).toUpperCase()}"]`,
     ),
   ];
 }
 
-function locateCountry(code) {
-  const shapes = findCountryShapes(code);
+function findAssignmentShapes(key) {
+  const normalized = normalizeAssignmentKey(key);
+  if (!svgElement || !normalized) return [];
+  const separator = normalized.indexOf(":");
+  const kind = normalized.slice(0, separator);
+  const code = normalized.slice(separator + 1);
+  if (kind === "country") return findCountryShapes(code);
+  if (kind === "region") {
+    return [...svgElement.querySelectorAll("[data-assignment-key]")]
+      .filter((shape) => shape.dataset.regionCode?.toUpperCase() === code);
+  }
+  return [...svgElement.querySelectorAll("[data-region-units]")]
+    .filter((shape) => String(shape.dataset.regionUnits).split(/\s+/).includes(code));
+}
+
+function locateAssignment(key) {
+  const shapes = findAssignmentShapes(key);
   shapes.forEach((shape) => {
     shape.classList.remove("is-located");
     requestAnimationFrame(() => shape.classList.add("is-located"));
   });
-  window.setTimeout(
-    () => shapes.forEach((shape) => shape.classList.remove("is-located")),
-    950,
-  );
+  window.setTimeout(() => shapes.forEach((shape) => shape.classList.remove("is-located")), 950);
 }
 
 function handleCountryListClick(event) {
-  const button = event.target.closest("[data-code]");
+  const button = event.target.closest("[data-assignment-key]");
   if (!button) return;
-  const code = button.dataset.code;
-  const current = Number.isInteger(state.assignments[code]) ? state.assignments[code] : null;
-  setCountryColor(code, getNextColorIndex(current, state.palette.length), { locate: true });
+  const key = button.dataset.assignmentKey;
+  const current = getAssignmentIndex(key);
+  setAssignmentColor(key, getNextColorIndex(current, state.palette.length), { locate: true });
 }
 
 function handleCountryListHover(event) {
-  const code = event.target.closest("[data-code]")?.dataset.code;
-  if (!code) return;
+  const key = event.target.closest("[data-assignment-key]")?.dataset.assignmentKey;
+  if (!key) return;
   clearCountryHighlights();
-  findCountryShapes(code).forEach((shape) => shape.classList.add("is-highlighted"));
+  findAssignmentShapes(key).forEach((shape) => shape.classList.add("is-highlighted"));
 }
 
 function clearCountryHighlights() {
@@ -861,6 +1391,7 @@ function renderExportOptions() {
   elements.legendOpacityValue.textContent = `${transparency}%`;
   elements.exportTitle.value = options.title;
   elements.titlePosition.value = options.titlePosition;
+  updateLegendPositionMarkers();
 }
 
 function handleExportOptionsInput(event) {
@@ -889,8 +1420,9 @@ function handleExportOptionsInput(event) {
 function renderMapAnnotations() {
   if (!svgElement) return;
   removeMapAnnotations(svgElement);
-  if (state.exportOptions.legendEnabled) addLegendToSvg(svgElement);
-  if (state.exportOptions.title.trim()) addTitleToSvg(svgElement);
+  const titleSlot = getAutoTitleSlot();
+  if (state.exportOptions.legendEnabled) addLegendToSvg(svgElement, titleSlot);
+  if (state.exportOptions.title.trim()) addTitleToSvg(svgElement, titleSlot);
 }
 
 function removeMapAnnotations(svg) {
@@ -900,121 +1432,249 @@ function removeMapAnnotations(svg) {
 }
 
 function renderMapPicker() {
+  const generated = state.mapScope === "generated";
   const scopedMaps = mapsForScope(state.mapScope);
   elements.mapScopeButtons.forEach((button) => {
     const active = button.dataset.mapScope === state.mapScope;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  elements.mapScopeNote.textContent =
-    state.mapScope === "world"
-      ? "Choose a world map divided into countries."
-      : "Choose a continent-focused country map.";
-  elements.mapSelectLabel.textContent =
-    state.mapScope === "world" ? "World base map" : "Continent map";
-  elements.mapSelect.replaceChildren(
-    ...scopedMaps.map((map) => {
-      const option = document.createElement("option");
-      option.value = map.title;
-      option.textContent = map.fallback
-        ? `${map.name} · offline`
-        : map.region
-          ? `${map.region} — ${map.name}`
-          : map.name;
-      return option;
-    }),
-  );
-  elements.mapSelect.value = activeMap.title;
-  elements.mapSelect.disabled = scopedMaps.length < 2;
+  elements.generatedMapOptions.hidden = !generated;
+  elements.mapSelect.parentElement.hidden = generated;
+  elements.mapScopeNote.textContent = generated
+    ? "Make a blank map from current public boundary data."
+    : state.mapScope === "world"
+      ? "Choose a verified world map from Wikimedia Commons."
+      : "Choose a continent-focused map from Wikimedia Commons.";
+  elements.mapSelectLabel.textContent = state.mapScope === "continent" ? "Continent map" : "World base map";
+  elements.mapSelect.replaceChildren(...scopedMaps.map((map) => {
+    const option = document.createElement("option");
+    option.value = map.title;
+    option.textContent = map.fallback
+      ? `${map.name} · offline`
+      : map.region
+        ? `${map.region} — ${map.name}`
+        : map.name;
+    return option;
+  }));
+  if (scopedMaps.some((map) => map.title === activeMap.title)) elements.mapSelect.value = activeMap.title;
+  elements.mapSelect.disabled = generated || scopedMaps.length < 2;
 
-  const visibleMapCount =
-    state.mapScope === "world"
-      ? scopedMaps.filter((map) => map.categoryMap).length
-      : scopedMaps.length;
-  elements.mapCount.textContent = `${visibleMapCount} ${
-    visibleMapCount === 1 ? "map" : "maps"
-  }`;
-  elements.mapDescription.textContent = activeMap.description;
-  const interactiveCountryCount = countries.length;
-  elements.mapCompatibility.classList.toggle("is-limited", interactiveCountryCount === 0);
-  elements.mapCompatibility.textContent = interactiveCountryCount
-    ? `${interactiveCountryCount} ISO country groups are colorable in this SVG.`
-    : "This source SVG has no ISO country groups, so it is view/export only.";
-  elements.mapSourceLink.href = activeMap.commonsUrl;
-  elements.mapSourceLink.textContent = !activeMap.fallback
-    ? "View file and full description"
-    : "View source file";
+  const visibleMapCount = state.mapScope === "world"
+    ? scopedMaps.filter((map) => map.categoryMap).length
+    : scopedMaps.length;
+  elements.mapCount.textContent = generated
+    ? (activeMap.isGenerated ? `${activeGeneratedFeatures.length} areas` : "Create a map")
+    : `${visibleMapCount} ${visibleMapCount === 1 ? "map" : "maps"}`;
+  elements.mapDescription.textContent = activeMap.description || "Generated blank map from Map Generator.";
+  const generatedReady = activeMap.isGenerated;
+  const interactiveCount = countries.length;
+  elements.mapCompatibility.classList.toggle("is-limited", !interactiveCount);
+  elements.mapCompatibility.textContent = generatedReady
+    ? `Map Generator SVG contract ${svgElement.getAttribute("data-mapgen-contract")} · ${interactiveCount} colorable regions${activeMapMetadata?.boundaryYear ? ` · boundary year ${activeMapMetadata.boundaryYear}` : ""}.`
+    : interactiveCount
+      ? `${interactiveCount} ISO country groups are colorable in this SVG.`
+      : generationError || "This source SVG has no recognized colorable groups.";
+  elements.mapSourceLink.href = activeMap.commonsUrl || activeMap.url;
+  elements.mapSourceLink.textContent = generatedReady
+    ? "View generated SVG and provenance"
+    : !activeMap.fallback
+      ? "View file and full description"
+      : "View source file";
+  elements.mapSourceLink.target = "_blank";
+  elements.mapSourceLink.rel = "noopener noreferrer";
   elements.activeMapName.textContent = activeMap.name;
-  elements.mapDimensions.textContent = `${Math.round(currentMapDimensions.width)} × ${Math.round(
-    currentMapDimensions.height,
-  )} SVG`;
+  elements.mapDimensions.textContent = `${Math.round(currentMapDimensions.width)} × ${Math.round(currentMapDimensions.height)} SVG`;
+
+  elements.shareAlikeNote.hidden = !(generatedReady && activeMapMetadata?.shareAlike);
+  elements.shareAlikeNote.textContent = elements.shareAlikeNote.hidden
+    ? ""
+    : "Share-alike data: derived maps may need to use the same licence. The export includes the source credit and licence.";
 
   const hasThumbnail = Boolean(activeMap.thumbnailUrl);
   elements.mapThumbnail.hidden = !hasThumbnail;
   elements.mapThumbnailPlaceholder.hidden = hasThumbnail;
+  elements.mapThumbnailPlaceholder.textContent = generatedReady ? "LIVE SVG" : "SVG";
   elements.mapThumbnail.alt = hasThumbnail ? `Preview of ${activeMap.name}` : "";
   elements.mapThumbnail.src = hasThumbnail ? activeMap.thumbnailUrl : "";
   elements.mapThumbnail.onerror = () => {
     elements.mapThumbnail.hidden = true;
     elements.mapThumbnailPlaceholder.hidden = false;
   };
+  if (generationError && generated) setGeneratedStatus(generationError, true);
+  updateLegendPositionMarkers();
 }
 
 function renderMap() {
-  for (const country of countries) paintCountry(country.alpha2);
+  const assignments = importPreview?.mapPreview
+    ? { ...state.assignments, ...Object.fromEntries(importPreview.assignments) }
+    : state.assignments;
+  if (activeMap.isGenerated) {
+    renderGeneratedColorStyles(assignments);
+    return;
+  }
+  for (const country of countries) {
+    const index = getAssignmentIndex(country.assignmentKey, assignments);
+    const color = Number.isInteger(index) ? state.palette[index]?.color : null;
+    for (const shape of findCountryShapes(country.alpha2)) {
+      if (color) shape.style.setProperty("fill", color, "important");
+      else shape.style.removeProperty("fill");
+    }
+  }
+}
+
+function renderGeneratedColorStyles(assignments) {
+  if (!svgElement) return;
+  const rules = [];
+  const entries = Object.entries(assignments)
+    .map(([key, index]) => [normalizeAssignmentKey(key), index])
+    .filter(([key, index]) => key && Number.isInteger(index) && state.palette[index])
+    .sort(([a], [b]) => assignmentRulePriority(a) - assignmentRulePriority(b));
+  for (const [key, index] of entries) {
+    const separator = key.indexOf(":");
+    const kind = key.slice(0, separator);
+    const code = key.slice(separator + 1);
+    const color = state.palette[index].color;
+    const escaped = escapeCssString(code);
+    if (kind === "country") rules.push(`path.mg-land[class~="${escaped}"] { fill: ${color}; }`);
+    else if (kind === "unit") rules.push(`path.mg-land[data-unit~="${escaped}"] { fill: ${color}; }`);
+    else rules.push(`path.mg-land[data-code="${escaped}"] { fill: ${color}; }`);
+  }
+  let style = svgElement.querySelector("#maphue-colors");
+  if (!style) {
+    style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    style.setAttribute("id", "maphue-colors");
+    svgElement.append(style);
+  }
+  style.textContent = rules.join("\n");
+}
+
+function assignmentRulePriority(key) {
+  if (key.startsWith("country:")) return 0;
+  if (key.startsWith("unit:")) return 1;
+  return 2;
+}
+
+function escapeCssString(value) {
+  return String(value).replace(/[\\"]/g, "\\$&");
 }
 
 function renderCountryList() {
-  const focusedCode = elements.countryList.contains(document.activeElement)
-    ? document.activeElement.dataset.code
+  const focusedKey = elements.countryList.contains(document.activeElement)
+    ? document.activeElement.dataset.assignmentKey
     : null;
   const query = normalizeLookup(elements.countrySearch.value);
-  const matches = countries
-    .filter((country) => {
-      if (!query) return true;
-      return [country.name, country.sourceName, country.alpha2, country.alpha3].some((value) =>
-        normalizeLookup(value).includes(query),
-      );
-    })
-    .slice(0, query ? 80 : 60);
-
-  elements.countryList.replaceChildren(
-    ...matches.map((country) => {
-      const index = state.assignments[country.alpha2];
+  const matches = countries.filter((country) => {
+    if (!query) return true;
+    return [country.name, country.sourceName, country.code, country.alpha2, country.alpha3,
+      country.parentName, country.parent]
+      .some((value) => normalizeLookup(value).includes(query));
+  }).slice(0, query ? 100 : 120);
+  const groups = new Map();
+  for (const area of matches) {
+    const heading = activeMap.isGenerated && area.parentName ? area.parentName : "";
+    if (!groups.has(heading)) groups.set(heading, []);
+    groups.get(heading).push(area);
+  }
+  const nodes = [];
+  for (const [heading, areas] of groups) {
+    if (heading) {
+      const groupHeading = document.createElement("div");
+      groupHeading.className = "region-group-heading";
+      groupHeading.textContent = heading;
+      nodes.push(groupHeading);
+    }
+    for (const area of areas) {
       const button = document.createElement("button");
       button.className = "country-option";
       button.type = "button";
-      button.dataset.code = country.alpha2;
+      button.dataset.assignmentKey = area.assignmentKey;
+      const index = effectiveAssignmentForRecord(area);
       const assigned = Number.isInteger(index);
-      const label = assigned
-        ? state.palette[index]?.label || `Category ${index + 1}`
-        : "uncolored";
+      const label = assigned ? state.palette[index]?.label || `Category ${index + 1}` : "uncolored";
       button.setAttribute("aria-pressed", String(assigned));
-      button.setAttribute(
-        "aria-label",
-        `${country.name}, ${label}. Activate to ${assigned ? "change" : "assign"} color.`,
-      );
+      button.setAttribute("aria-label", `${area.name}${area.parentName ? `, ${area.parentName}` : ""}, ${label}. Activate to ${assigned ? "change" : "assign"} color.`);
       button.innerHTML = `
         <span class="country-swatch" aria-hidden="true"></span>
         <span class="country-option-name"></span>
-        <span class="country-option-code">${country.alpha2} · ${country.alpha3}</span>
+        <span class="country-option-code"></span>
       `;
-      button.querySelector(".country-option-name").textContent = country.name;
+      button.querySelector(".country-option-name").textContent = area.name;
+      button.querySelector(".country-option-code").textContent = area.code || area.alpha2;
       const swatch = button.querySelector(".country-swatch");
       if (Number.isInteger(index) && state.palette[index]) {
         swatch.style.background = state.palette[index].color;
         swatch.style.borderColor = state.palette[index].color;
       }
-      return button;
-    }),
-  );
-
-  if (focusedCode) {
-    elements.countryList.querySelector(`[data-code="${focusedCode}"]`)?.focus({ preventScroll: true });
+      nodes.push(button);
+    }
   }
-
+  elements.countryList.replaceChildren(...nodes);
+  if (focusedKey) {
+    [...elements.countryList.querySelectorAll("[data-assignment-key]")]
+      .find((button) => button.dataset.assignmentKey === focusedKey)?.focus({ preventScroll: true });
+  }
+  elements.countryEmpty.textContent = activeMap.isGenerated ? "No matching regions." : "No matching countries.";
   elements.countryEmpty.hidden = matches.length > 0;
   elements.countryTotal.textContent = `${countries.length} available`;
+  const subdivisions = activeMap.isGenerated && countries.some((area) => area.assignmentKey.startsWith("region:"));
+  elements.countriesHeading.textContent = subdivisions ? "2. Regions" : "2. Countries";
+  elements.regionSearchLabel.textContent = subdivisions ? "Find a region or code" : "Find a country or region";
+  elements.regionHelp.textContent = subdivisions
+    ? "Search by name, code, or parent area. Click a region to cycle its color."
+    : "Search by country name, ISO code, or region. Click an area to cycle its color.";
+}
+
+function effectiveAssignmentForRecord(record) {
+  const direct = getAssignmentIndex(record.assignmentKey);
+  if (Number.isInteger(direct)) return direct;
+  for (const unit of Array.isArray(record.units) ? record.units : []) {
+    const unitIndex = getAssignmentIndex(`unit:${unit}`);
+    if (Number.isInteger(unitIndex)) return unitIndex;
+  }
+  return record.alpha2 ? getAssignmentIndex(`country:${record.alpha2.toLowerCase()}`) : null;
+}
+
+function updateLegendPositionMarkers() {
+  const slots = Array.isArray(activeMapMetadata?.legendSlots) ? activeMapMetadata.legendSlots : [];
+  const viewBox = currentMapViewBox;
+  for (const label of elements.legendPosition.querySelectorAll("label")) {
+    const input = label.querySelector("input");
+    label.classList.remove("has-land");
+    if (!input || input.value === "auto") continue;
+    label.title = "";
+    label.removeAttribute("aria-label");
+    if (!activeMap.isGenerated || !slots.length) continue;
+
+    let slot = slots.find((candidate) =>
+      (candidate.position || candidate.name || candidate.anchor) === input.value,
+    );
+    if (!slot) {
+      slot = slots.find((candidate) => {
+        const bounds = slotBounds(candidate);
+        if (!bounds) return false;
+        const horizontal = bounds.x + bounds.width / 2 < viewBox[0] + viewBox[2] / 3
+          ? "left"
+          : bounds.x + bounds.width / 2 > viewBox[0] + (viewBox[2] * 2) / 3 ? "right" : "center";
+        const vertical = bounds.y + bounds.height / 2 < viewBox[1] + viewBox[3] / 3
+          ? "top"
+          : bounds.y + bounds.height / 2 > viewBox[1] + (viewBox[3] * 2) / 3 ? "bottom" : "center";
+        const anchor = vertical === "center" && horizontal === "center"
+          ? "center"
+          : `${vertical}-${horizontal}`;
+        return anchor === input.value;
+      });
+    }
+    const share = slot ? Number(slot.landShare ?? slot.land_share) : NaN;
+    if (!Number.isFinite(share)) continue;
+    const normalized = share > 1 ? share / 100 : share;
+    const percent = Math.round(Math.max(0, Math.min(1, normalized)) * 100);
+    label.title = percent
+      ? `About ${percent}% of this legend area covers land.`
+      : "This legend area avoids land.";
+    label.setAttribute("aria-label", `${input.value.replaceAll("-", " ")}, ${percent}% covers land`);
+    label.classList.toggle("has-land", percent > 5);
+  }
 }
 
 function renderPalette() {
@@ -1063,12 +1723,12 @@ function renderImportColors() {
 
 function renderStatus() {
   const assigned = Object.keys(state.assignments).length;
-  elements.assignedCount.textContent = `${assigned} ${assigned === 1 ? "country" : "countries"}`;
+  elements.assignedCount.textContent = `${assigned} ${assigned === 1 ? "area" : "areas"}`;
   elements.selectionSummary.textContent = assigned
-    ? `${assigned} ${assigned === 1 ? "country is" : "countries are"} colored across ${
+    ? `${assigned} ${assigned === 1 ? "area is" : "areas are"} colored across ${
         new Set(Object.values(state.assignments)).size
       } ${new Set(Object.values(state.assignments)).size === 1 ? "category" : "categories"}.`
-    : "No countries colored yet.";
+    : "No areas colored yet.";
 }
 
 function handlePaletteSizeChange() {
@@ -1098,9 +1758,7 @@ function handlePaletteInput(event) {
   invalidateImportPreview();
 
   if (field === "color") {
-    for (const [code, assignedIndex] of Object.entries(state.assignments)) {
-      if (assignedIndex === index) paintCountry(code);
-    }
+    renderMap();
   } else {
     renderImportColors();
   }
@@ -1188,11 +1846,11 @@ function getImportCategoryColumn(rows) {
 }
 
 function invalidateImportPreview() {
-  if (importPreview?.mapPreview) {
-    for (const code of importPreview.assignments.keys()) paintCountry(code);
-  }
+  const hadMapPreview = Boolean(importPreview?.mapPreview);
   importPreview = null;
+  if (hadMapPreview) renderMap();
   elements.applyImportButton.disabled = true;
+  elements.recodeImportButton.hidden = true;
   elements.cancelImportPreviewButton.hidden = true;
   elements.importReport.hidden = true;
   elements.importReport.replaceChildren();
@@ -1203,54 +1861,52 @@ function cancelImportPreview() {
   showToast("CSV preview canceled");
 }
 
-function previewImport() {
+async function previewImport() {
   invalidateImportPreview();
   const rows = parseDelimitedText(elements.importText.value);
   if (!rows.length) {
-    importPreview = { assignments: new Map(), issues: ["Paste country data or choose a CSV first."], duplicates: 0 };
+    importPreview = { assignments: new Map(), issues: ["Paste region data or choose a CSV first."], duplicates: 0, unmappedRecords: [], crosswalkIssues: [] };
     renderImportPreview(importPreview);
     return;
   }
 
   const categoryColumn = getImportCategoryColumn(rows);
-  const requestedColumn =
-    elements.importColumn.value === "auto"
-      ? detectCountryColumn(rows, categoryColumn)
-      : Number(elements.importColumn.value);
+  const requestedColumn = elements.importColumn.value === "auto"
+    ? detectRegionColumn(rows, categoryColumn)
+    : Number(elements.importColumn.value);
+  const parentColumn = detectParentColumn(rows, [requestedColumn, categoryColumn]);
   const targetIndex = Number(elements.importColor.value);
   const assignments = new Map();
   const issues = [];
+  const unmappedRecords = [];
+  const inputValues = [];
   const conflicts = new Set();
   let duplicates = 0;
   const headerRow = looksLikeHeader(rows[0]?.[requestedColumn]) ||
+    REGION_CODE_HEADER_NAMES.has(normalizeLookup(rows[0]?.[requestedColumn])) ||
     (categoryColumn !== null && looksLikeCategoryHeader(rows[0]?.[categoryColumn]));
   const firstDataRow = headerRow ? 1 : 0;
-
   if (categoryColumn !== null && categoryColumn === requestedColumn) {
-    issues.push("Choose different columns for country and category.");
+    issues.push("Choose different columns for region and category.");
   }
 
   for (let rowIndex = firstDataRow; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex];
     const recordNumber = rowIndex + 1;
-    const rawCountry = row[requestedColumn]?.trim();
+    const rawValue = row[requestedColumn]?.trim();
+    const rawParent = parentColumn < 0 ? "" : row[parentColumn]?.trim();
     const rawCategory = categoryColumn === null ? "" : row[categoryColumn]?.trim();
-    if (!rawCountry && !rawCategory) continue;
-    if (!rawCountry) {
-      issues.push(`Record ${recordNumber} has a category but no country.`);
+    if (!rawValue && !rawCategory) continue;
+    if (!rawValue) {
+      issues.push(`Record ${recordNumber} has a category but no region.`);
       continue;
     }
-
-    const code = resolveCountry(rawCountry);
-    if (!code) {
-      issues.push(`Record ${recordNumber}: country “${rawCountry}” was not recognized.`);
-      continue;
-    }
+    inputValues.push(rawValue);
 
     let categoryIndex = targetIndex;
     if (categoryColumn !== null) {
       if (!rawCategory) {
-        issues.push(`Record ${recordNumber}: category is empty for ${rawCountry}.`);
+        issues.push(`Record ${recordNumber}: category is empty for ${rawValue}.`);
         continue;
       }
       const categoryMatch = resolveCategory(rawCategory);
@@ -1260,31 +1916,172 @@ function previewImport() {
       }
       categoryIndex = categoryMatch.index;
     }
-
     if (!state.palette[categoryIndex]) {
       issues.push(`Record ${recordNumber}: the selected category is unavailable.`);
       continue;
     }
-    if (assignments.has(code)) {
-      if (assignments.get(code) !== categoryIndex) {
-        if (!conflicts.has(code)) {
-          const countryName = allCountryByCode.get(code)?.name || rawCountry;
-          issues.push(`${countryName} is assigned to more than one category.`);
-          conflicts.add(code);
-        }
+
+    const resolved = resolveImportTarget(rawValue, rawParent);
+    if (resolved.status === "ambiguous") {
+      const parents = [...new Set(resolved.records.map((record) => record.parentName).filter(Boolean))];
+      issues.push(`Record ${recordNumber}: “${rawValue}” matches more than one area${parents.length ? ` (${parents.join(", ")})` : ""}. Add a parent column or use a code.`);
+      continue;
+    }
+    if (resolved.status === "missing") {
+      if (activeMap.isGenerated) {
+        unmappedRecords.push({ rawCode: rawValue, rawParent, categoryIndex, recordNumber });
       } else {
-        duplicates += 1;
+        issues.push(`Record ${recordNumber}: area “${rawValue}” is not on this map.`);
       }
       continue;
     }
-    assignments.set(code, categoryIndex);
+    const keys = resolved.status === "unit"
+      ? [`unit:${String(resolved.code).toUpperCase()}`]
+      : [resolved.assignmentKey];
+    for (const key of keys) {
+      if (assignments.has(key)) {
+        if (assignments.get(key) !== categoryIndex) {
+          if (!conflicts.has(key)) {
+            issues.push(`${resolved.name || key} is assigned to more than one category.`);
+            conflicts.add(key);
+          }
+        } else {
+          duplicates += 1;
+        }
+        continue;
+      }
+      assignments.set(key, categoryIndex);
+    }
   }
 
   if (!rows.slice(firstDataRow).some((row) => row[requestedColumn]?.trim())) {
-    issues.push("No country rows were found in the selected column.");
+    issues.push("No area rows were found in the selected column.");
   }
-  importPreview = { assignments, issues, duplicates };
+  importPreview = {
+    assignments,
+    issues,
+    duplicates,
+    unmappedRecords,
+    inputValues,
+    crosswalkIssues: [],
+    matchResult: null,
+    matchError: "",
+    codePrefix: getMatchCodePrefix(rows[0]?.[requestedColumn] || ""),
+    mapPreview: false,
+  };
   renderImportPreview(importPreview);
+  if (activeMap.isGenerated && unmappedRecords.length) {
+    await analyzeCrosswalksLocally(importPreview);
+    if (importPreview) renderImportPreview(importPreview);
+  }
+}
+
+function resolveImportTarget(value, parentValue = "") {
+  if (activeMap.isGenerated) {
+    let result = resolveGeneratedFeature(value, parentValue, generatedFeatureIndex);
+    if (result.status === "missing" && activeMap.dataset === "us-counties" && /^\d{5}$/.test(String(value).trim())) {
+      result = resolveGeneratedFeature(`US-${String(value).trim()}`, parentValue, generatedFeatureIndex);
+    }
+    if (result.status === "matched") {
+      return { status: "matched", assignmentKey: result.record.assignmentKey, name: result.record.name };
+    }
+    if (result.status === "unit") return result;
+    if (result.status === "ambiguous") return result;
+    const country = resolveCountry(value);
+    if (country) return { status: "matched", assignmentKey: `country:${country.toLowerCase()}`, name: allCountryByCode.get(country)?.name || country };
+    return { status: "missing" };
+  }
+  const country = resolveCountry(value);
+  if (!country) return { status: "missing" };
+  return {
+    status: "matched",
+    assignmentKey: `country:${country.toLowerCase()}`,
+    name: allCountryByCode.get(country)?.name || country,
+  };
+}
+
+function getMatchCodePrefix(header) {
+  const normalized = normalizeLookup(header);
+  if (activeMap.dataset === "us-counties" &&
+      (normalized === "fips" || normalized === "geoid" || normalized.includes("county code"))) {
+    return "US-";
+  }
+  return "";
+}
+
+async function analyzeCrosswalksLocally(preview) {
+  try {
+    const api = await getMapgenClient();
+    const crosswalks = collectionFrom(await api.crosswalks(), "crosswalks");
+    const rawCodes = [...new Set(preview.unmappedRecords.map((record) => record.rawCode))];
+    const normalizedCodes = new Set(rawCodes.map((code) => normalizeCrosswalkCode(code, preview.codePrefix)));
+    const hints = [];
+    for (const crosswalk of crosswalks) {
+      const id = crosswalk.id || /crosswalks\/([^/.]+)\.csv/.exec(crosswalk.table || "")?.[1];
+      if (!id) continue;
+      const appliesTo = [crosswalk.dataset, ...(Array.isArray(crosswalk.datasets) ? crosswalk.datasets : [])].filter(Boolean);
+      if (appliesTo.length && !appliesTo.includes(activeMap.dataset)) continue;
+      let rows = crosswalkRowsById.get(id);
+      if (!rows) {
+        const response = await api.fetch(`${api.base}/crosswalks/${encodeURIComponent(id)}.csv`);
+        if (!response.ok) continue;
+        rows = parseDelimitedText(await response.text());
+        crosswalkRowsById.set(id, rows);
+      }
+      if (rows.length < 2) continue;
+      const columns = findCrosswalkCodeColumns(rows[0].map(normalizeLookup));
+      if (!columns) continue;
+      const { fromColumn, toColumn } = columns;
+      const fromCodes = new Set(rows.slice(1).map((row) => normalizeCrosswalkCode(row[fromColumn])).filter(Boolean));
+      const toCodes = new Set(rows.slice(1).map((row) => normalizeCrosswalkCode(row[toColumn])).filter(Boolean));
+      const oldCodes = [...normalizedCodes].filter((code) => fromCodes.has(code) && !toCodes.has(code));
+      const newCodes = [...normalizedCodes].filter((code) => toCodes.has(code) && !fromCodes.has(code));
+      const title = crosswalk.title || crosswalk.name || id;
+      if (oldCodes.length) {
+        hints.push({
+          crosswalk: id,
+          direction: "old-data",
+          codes: oldCodes,
+          message: `${oldCodes.length} code${oldCodes.length === 1 ? " is" : "s are"} from an older boundary set (${title}). Recode through this crosswalk or review the split regions.`,
+        });
+      }
+      if (newCodes.length) {
+        hints.push({
+          crosswalk: id,
+          direction: "new-data",
+          codes: newCodes,
+          message: `${newCodes.length} code${newCodes.length === 1 ? " is" : "s are"} from a newer boundary set (${title}); this map uses older boundaries.`,
+        });
+      }
+    }
+    if (preview !== importPreview) return;
+    const importKeys = new Set(preview.assignments.keys());
+    const mapWithoutData = generatedFeatureIndex.records.filter((feature) => {
+      if (importKeys.has(feature.assignmentKey)) return false;
+      if (feature.countryCode && importKeys.has(`country:${feature.countryCode.toLowerCase()}`)) return false;
+      return !(Array.isArray(feature.units) && feature.units.some((unit) => importKeys.has(`unit:${String(unit).toUpperCase()}`)));
+    }).length;
+    preview.matchResult = { hints, mapWithoutData };
+  } catch (error) {
+    if (preview !== importPreview) return;
+    preview.matchError = error.message;
+  }
+}
+
+function findCrosswalkCodeColumns(headers) {
+  const fromNames = new Set([
+    "from", "from code", "from id", "old", "old code", "old id", "old geoid", "old fips",
+    "source", "source code", "source id", "source geoid", "source fips", "origin", "origin code",
+  ]);
+  const toNames = new Set([
+    "to", "to code", "to id", "new", "new code", "new id", "new geoid", "new fips",
+    "target", "target code", "target id", "target geoid", "target fips", "destination", "destination code",
+  ]);
+  const fromColumn = headers.findIndex((header) => fromNames.has(header));
+  const toColumn = headers.findIndex((header) => toNames.has(header));
+  return fromColumn >= 0 && toColumn >= 0 && fromColumn !== toColumn
+    ? { fromColumn, toColumn }
+    : null;
 }
 
 function resolveCategory(value) {
@@ -1308,21 +2105,26 @@ function renderImportPreview(preview, { applied = false } = {}) {
   report.replaceChildren();
   const status = document.createElement("strong");
   const categoryGroups = new Map();
-
-  for (const [code, index] of preview.assignments) {
+  for (const [key, index] of preview.assignments) {
     if (!categoryGroups.has(index)) categoryGroups.set(index, []);
-    categoryGroups.get(index).push(allCountryByCode.get(code)?.name || code);
+    categoryGroups.get(index).push(assignmentLabel(key));
   }
 
-  const countryCount = preview.assignments.size;
+  const blockers = preview.issues.length + preview.unmappedRecords.length + preview.crosswalkIssues.length;
+  const assignedCount = preview.assignments.size;
   const categoryCount = categoryGroups.size;
   status.textContent = applied
-    ? `${countryCount} ${countryCount === 1 ? "country" : "countries"} assigned across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`
-    : preview.issues.length
-      ? `Preview blocked · ${preview.issues.length} ${preview.issues.length === 1 ? "issue" : "issues"} to fix.`
-      : `${countryCount} ${countryCount === 1 ? "country" : "countries"} ready across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`;
+    ? `${assignedCount} ${assignedCount === 1 ? "area" : "areas"} assigned across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`
+    : blockers
+      ? `Preview blocked · ${blockers} ${blockers === 1 ? "issue" : "issues"} to resolve.`
+      : `${assignedCount} ${assignedCount === 1 ? "area" : "areas"} ready across ${categoryCount} ${categoryCount === 1 ? "category" : "categories"}.`;
   report.append(status);
 
+  if (activeMapMetadata?.boundaryYear) {
+    const boundary = document.createElement("p");
+    boundary.textContent = `Map boundary year: ${activeMapMetadata.boundaryYear}.`;
+    report.append(boundary);
+  }
   if (categoryGroups.size) {
     const list = document.createElement("ul");
     list.className = "import-category-breakdown";
@@ -1335,70 +2137,185 @@ function renderImportPreview(preview, { applied = false } = {}) {
       const description = document.createElement("span");
       const sample = names.slice(0, 3).join(", ");
       const remainder = names.length - Math.min(names.length, 3);
-      description.textContent = `${state.palette[index].label}: ${names.length} · ${sample}${
-        remainder ? `, and ${remainder} more` : ""
-      }`;
+      description.textContent = `${state.palette[index].label}: ${names.length} · ${sample}${remainder ? `, and ${remainder} more` : ""}`;
       item.append(swatch, description);
       list.append(item);
     }
     report.append(list);
   }
-
   if (preview.duplicates) {
     const duplicates = document.createElement("p");
     duplicates.textContent = `${preview.duplicates} repeated row${preview.duplicates === 1 ? "" : "s"} with the same assignment will be merged.`;
     report.append(duplicates);
   }
-
-  if (preview.issues.length) {
+  const messages = [
+    ...preview.issues,
+    ...preview.unmappedRecords.slice(0, 8).map((row) => `Record ${row.recordNumber}: “${row.rawCode}” is not on this map.`),
+    ...preview.crosswalkIssues,
+  ];
+  if (messages.length) {
     const issueList = document.createElement("ul");
     issueList.className = "import-issues";
-    for (const issue of preview.issues.slice(0, 8)) {
+    for (const issue of messages.slice(0, 8)) {
       const item = document.createElement("li");
       item.textContent = issue;
       issueList.append(item);
     }
-    if (preview.issues.length > 8) {
+    if (messages.length > 8) {
       const item = document.createElement("li");
-      item.textContent = `And ${preview.issues.length - 8} more issues.`;
+      item.textContent = `And ${messages.length - 8} more issues.`;
       issueList.append(item);
     }
     report.append(issueList);
   }
+  if (preview.recodeSummary) {
+    const recode = document.createElement("p");
+    recode.textContent = preview.recodeSummary;
+    report.append(recode);
+  }
+  if (preview.matchResult) {
+    const missing = Number(preview.matchResult.mapWithoutData) || 0;
+    if (missing) {
+      const coverage = document.createElement("p");
+      coverage.textContent = `${missing} map regions have no matching data row.`;
+      report.append(coverage);
+    }
+    for (const hint of preview.matchResult.hints || []) {
+      const hintLine = document.createElement("p");
+      hintLine.textContent = hint.message;
+      report.append(hintLine);
+    }
+  } else if (preview.matchError) {
+    const matchWarning = document.createElement("p");
+    matchWarning.textContent = `Boundary check unavailable: ${preview.matchError}`;
+    report.append(matchWarning);
+  }
 
   report.hidden = false;
-  elements.applyImportButton.disabled =
-    applied || preview.issues.length > 0 || preview.assignments.size === 0;
-  elements.cancelImportPreviewButton.hidden =
-    applied || preview.issues.length > 0 || preview.assignments.size === 0;
-
-  if (!applied && !preview.issues.length && preview.assignments.size) {
+  const ready = !applied && !blockers && assignedCount > 0;
+  elements.applyImportButton.disabled = !ready;
+  elements.cancelImportPreviewButton.hidden = !ready;
+  const recodeHint = (preview.matchResult?.hints || []).find((hint) => hint.crosswalk && hint.direction === "old-data");
+  elements.recodeImportButton.hidden = applied || !recodeHint || !preview.unmappedRecords.length;
+  if (recodeHint) elements.recodeImportButton.dataset.crosswalk = recodeHint.crosswalk;
+  if (!applied && assignedCount) {
     preview.mapPreview = true;
-    for (const [code, index] of preview.assignments) {
-      for (const shape of findCountryShapes(code)) {
-        shape.style.setProperty("fill", state.palette[index].color, "important");
+    renderMap();
+  } else if (applied) {
+    preview.mapPreview = false;
+  }
+}
+
+function assignmentLabel(key) {
+  const normalized = normalizeAssignmentKey(key) || key;
+  const separator = normalized.indexOf(":");
+  const kind = normalized.slice(0, separator);
+  const code = normalized.slice(separator + 1);
+  if (kind === "country") return allCountryByCode.get(code.toUpperCase())?.name || code.toUpperCase();
+  const feature = generatedFeatureIndex.records.find((record) => record.assignmentKey === normalized);
+  return feature?.name || (kind === "unit" ? `Unit ${code}` : code);
+}
+
+async function recodeImportWithCrosswalk() {
+  if (!importPreview) return;
+  const crosswalkId = elements.recodeImportButton.dataset.crosswalk;
+  const rows = crosswalkRowsById.get(crosswalkId);
+  if (!crosswalkId || !rows?.length) return;
+  elements.recodeImportButton.disabled = true;
+  elements.recodeImportButton.setAttribute("aria-busy", "true");
+  try {
+    const columns = findCrosswalkCodeColumns(rows[0].map(normalizeLookup));
+    if (!columns) throw new Error("The crosswalk table has no recognized source and target code columns.");
+    const { fromColumn, toColumn } = columns;
+    const hint = (importPreview.matchResult?.hints || []).find((item) => item.crosswalk === crosswalkId);
+    const oldData = hint?.direction === "old-data";
+    const sourceColumn = oldData ? fromColumn : toColumn;
+    const targetColumn = oldData ? toColumn : fromColumn;
+    const translations = new Map();
+    for (const row of rows.slice(1)) {
+      const source = normalizeCrosswalkCode(row[sourceColumn], importPreview.codePrefix);
+      const target = row[targetColumn]?.trim();
+      if (!source || !target) continue;
+      if (!translations.has(source)) translations.set(source, new Set());
+      translations.get(source).add(target);
+    }
+
+    const nextAssignments = new Map(importPreview.assignments);
+    const failures = [];
+    const failedRows = new Set();
+    const recoded = [];
+    for (const record of importPreview.unmappedRecords) {
+      const source = normalizeCrosswalkCode(record.rawCode, importPreview.codePrefix);
+      const targets = [...(translations.get(source) || [])];
+      if (!targets.length) {
+        failures.push(`Record ${record.recordNumber}: no crosswalk rule for “${record.rawCode}”.`);
+        failedRows.add(record.recordNumber);
+        continue;
+      }
+      const targetKeys = [];
+      for (const target of targets) {
+        const resolved = resolveImportTarget(target);
+        if (resolved.status === "matched") targetKeys.push(resolved.assignmentKey);
+      }
+      if (!targetKeys.length) {
+        failures.push(`Record ${record.recordNumber}: crosswalk targets for “${record.rawCode}” are not on this map.`);
+        failedRows.add(record.recordNumber);
+        continue;
+      }
+      let conflict = false;
+      for (const key of targetKeys) {
+        if (nextAssignments.has(key) && nextAssignments.get(key) !== record.categoryIndex) {
+          failures.push(`${assignmentLabel(key)} receives conflicting categories through ${crosswalkId}.`);
+          conflict = true;
+        }
+      }
+      if (conflict) {
+        failedRows.add(record.recordNumber);
+        continue;
+      }
+      for (const key of targetKeys) {
+        nextAssignments.set(key, record.categoryIndex);
+        recoded.push(key);
       }
     }
+    importPreview.assignments = nextAssignments;
+    importPreview.unmappedRecords = importPreview.unmappedRecords.filter((record) => failedRows.has(record.recordNumber));
+    importPreview.crosswalkIssues = failures;
+    const importKeys = new Set(importPreview.assignments.keys());
+    importPreview.matchResult.mapWithoutData = generatedFeatureIndex.records.filter((feature) =>
+      !importKeys.has(feature.assignmentKey) &&
+      !(feature.countryCode && importKeys.has(`country:${feature.countryCode.toLowerCase()}`)) &&
+      !(Array.isArray(feature.units) && feature.units.some((unit) => importKeys.has(`unit:${String(unit).toUpperCase()}`))),
+    ).length;
+    importPreview.recodeSummary = failures.length
+      ? "Boundary splits or category conflicts need a manual decision."
+      : `${new Set(recoded).size} map regions recoded from ${crosswalkId}.`;
+  } catch (error) {
+    importPreview.crosswalkIssues = [`Could not apply the crosswalk: ${error.message}`];
+  } finally {
+    elements.recodeImportButton.disabled = false;
+    elements.recodeImportButton.removeAttribute("aria-busy");
+    if (importPreview) renderImportPreview(importPreview);
   }
 }
 
 function applyImport() {
-  if (!importPreview || importPreview.issues.length || !importPreview.assignments.size) {
+  if (!importPreview || importPreview.issues.length || importPreview.unmappedRecords.length ||
+      importPreview.crosswalkIssues.length || !importPreview.assignments.size) {
     showToast("Preview a valid CSV before applying it.");
     return;
   }
-
-  for (const [code, categoryIndex] of importPreview.assignments) {
-    state.assignments[code] = categoryIndex;
-    paintCountry(code);
+  for (const [key, categoryIndex] of importPreview.assignments) {
+    state.assignments[key] = categoryIndex;
   }
   const appliedPreview = importPreview;
   importPreview = null;
+  renderMap();
   renderStatus();
   renderCountryList();
   persistState();
   renderImportPreview(appliedPreview, { applied: true });
-  showToast(`${appliedPreview.assignments.size} countries assigned`);
+  showToast(`${appliedPreview.assignments.size} areas assigned`);
 }
 
 function parseDelimitedText(text) {
@@ -1463,17 +2380,33 @@ function chooseDelimiter(text) {
   return winner.count ? winner.delimiter : null;
 }
 
-function detectCountryColumn(rows, excludedColumn = null) {
-  const maxColumns = Math.max(...rows.slice(0, 30).map((row) => row.length));
+function detectRegionColumn(rows, excludedColumn = null) {
+  const maxColumns = Math.max(1, ...rows.slice(0, 30).map((row) => row.length));
+  const recognizedHeader = rows[0]?.findIndex((header, index) =>
+    index !== excludedColumn &&
+    (COUNTRY_HEADER_NAMES.has(normalizeLookup(header)) ||
+      REGION_CODE_HEADER_NAMES.has(normalizeLookup(header)) ||
+      /\b(county|department|département|province|state)\b/i.test(header)),
+  ) ?? -1;
+  if (recognizedHeader >= 0) return recognizedHeader;
+
   let best = { index: 0, score: -1 };
   for (let index = 0; index < maxColumns; index += 1) {
     if (index === excludedColumn) continue;
-    const score = rows
-      .slice(0, 30)
-      .reduce((total, row) => total + (resolveCountry(row[index] || "") ? 1 : 0), 0);
+    const score = rows.slice(0, 30).reduce((total, row) => {
+      const result = resolveImportTarget(row[index] || "");
+      return total + (result.status === "matched" || result.status === "unit" ? 1 : 0);
+    }, 0);
     if (score > best.score) best = { index, score };
   }
   return best.index;
+}
+
+function detectParentColumn(rows, excludedColumns = []) {
+  const excluded = new Set(excludedColumns.filter((value) => Number.isInteger(value)));
+  return rows[0]?.findIndex((header, index) =>
+    !excluded.has(index) && PARENT_HEADER_NAMES.has(normalizeLookup(header)),
+  ) ?? -1;
 }
 
 function detectCategoryColumn(rows) {
@@ -1497,7 +2430,8 @@ function normalizeLookup(value) {
 }
 
 function looksLikeHeader(value) {
-  return COUNTRY_HEADER_NAMES.has(normalizeLookup(value));
+  const normalized = normalizeLookup(value);
+  return COUNTRY_HEADER_NAMES.has(normalized) || REGION_CODE_HEADER_NAMES.has(normalized) || PARENT_HEADER_NAMES.has(normalized);
 }
 
 function looksLikeCategoryHeader(value) {
@@ -1545,7 +2479,7 @@ function resetMap() {
 
 function exportSvg() {
   if (hasPendingMapPreview()) return;
-  downloadBlob(createExportSvg(), "maphue-world-map.svg", "image/svg+xml;charset=utf-8");
+  downloadBlob(createExportSvg(), exportFilename("svg"), "image/svg+xml;charset=utf-8");
   showToast("SVG exported");
 }
 
@@ -1554,7 +2488,7 @@ async function exportPng() {
   await runRasterExport(elements.exportPngButton, async () => {
     const canvas = await renderExportCanvas();
     const png = await canvasToBlob(canvas, "image/png");
-    downloadBlob(png, "maphue-world-map.png", "image/png");
+    downloadBlob(png, exportFilename("png"), "image/png");
     showToast(`PNG exported at ${canvas.width} × ${canvas.height}`);
   });
 }
@@ -1566,7 +2500,7 @@ async function exportPdf() {
     const jpegBlob = await canvasToBlob(canvas, "image/jpeg", 0.94);
     const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
     const pdfBytes = createPdfFromJpeg(jpegBytes, canvas.width, canvas.height);
-    downloadBlob(pdfBytes, "maphue-world-map.pdf", "application/pdf");
+    downloadBlob(pdfBytes, exportFilename("pdf"), "application/pdf");
     showToast("PDF exported");
   });
 }
@@ -1583,15 +2517,30 @@ function createExportSvg() {
   clone.removeAttribute("focusable");
   clone.setAttribute("width", String(Math.round(currentMapDimensions.width)));
   clone.setAttribute("height", String(Math.round(currentMapDimensions.height)));
-  clone.querySelectorAll("[data-country-code]").forEach((shape) => {
-    delete shape.dataset.countryCode;
+  clone.querySelectorAll("[data-assignment-key]").forEach((shape) => {
+    ["data-assignment-key", "data-country-code", "data-region-code", "data-region-name", "data-parent-name", "data-region-units"]
+      .forEach((attribute) => shape.removeAttribute(attribute));
     shape.classList.remove("is-highlighted", "is-located");
   });
+  clone.querySelectorAll(".is-highlighted, .is-located").forEach((shape) =>
+    shape.classList.remove("is-highlighted", "is-located"),
+  );
 
   removeMapAnnotations(clone);
-  if (state.exportOptions.legendEnabled) addLegendToSvg(clone);
-  if (state.exportOptions.title.trim()) addTitleToSvg(clone);
+  const titleSlot = getAutoTitleSlot();
+  if (state.exportOptions.legendEnabled) addLegendToSvg(clone, titleSlot);
+  if (state.exportOptions.title.trim()) addTitleToSvg(clone, titleSlot);
+  if (activeMap.isGenerated) addExportAttribution(clone);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
+}
+
+function exportFilename(extension) {
+  if (!activeMap.isGenerated) return `maphue-world-map.${extension}`;
+  const slug = `${activeMap.dataset}-${activeMap.region}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `maphue-${slug || "generated-map"}.${extension}`;
 }
 
 async function renderExportCanvas() {
@@ -1619,13 +2568,12 @@ async function renderExportCanvas() {
 
 function getRasterExportDimensions() {
   const maximumDimension = 4096;
-  const scale = Math.min(
-    1,
-    maximumDimension / Math.max(currentMapDimensions.width, currentMapDimensions.height),
-  );
+  const attribution = activeMap.isGenerated ? getExportAttributionLayout() : null;
+  const height = currentMapDimensions.height + (attribution?.extraHeight || 0);
+  const scale = Math.min(1, maximumDimension / Math.max(currentMapDimensions.width, height));
   return {
     width: Math.max(1, Math.round(currentMapDimensions.width * scale)),
-    height: Math.max(1, Math.round(currentMapDimensions.height * scale)),
+    height: Math.max(1, Math.round(height * scale)),
   };
 }
 
@@ -1665,7 +2613,7 @@ async function runRasterExport(button, action) {
   }
 }
 
-function addLegendToSvg(svg) {
+function addLegendToSvg(svg, reservedSlot = null) {
   const namespace = "http://www.w3.org/2000/svg";
   const legendWidth = 570;
   const legendHeight = 92 + state.palette.length * 54;
@@ -1678,6 +2626,10 @@ function addLegendToSvg(svg) {
     ),
   );
   const titleMetrics = getExportTitleMetrics();
+  const autoLegendSlot = activeMap.isGenerated && state.exportOptions.legendPosition === "auto"
+    ? selectAutoLegendSlot(activeMapMetadata, legendWidth * scale, legendHeight * scale,
+        { excludeSlots: reservedSlot ? [reservedSlot] : [] })
+    : null;
   const position = calculateAnchoredPosition(
     state.exportOptions.legendPosition,
     currentMapViewBox,
@@ -1692,6 +2644,7 @@ function addLegendToSvg(svg) {
         titleMetrics && state.exportOptions.titlePosition === "bottom"
           ? titleMetrics.fontSize * 1.45
           : 0,
+      autoLegendSlot,
     },
   );
   const textColor = state.exportOptions.legendTextColor;
@@ -1715,7 +2668,7 @@ function addLegendToSvg(svg) {
   const legendTitle = document.createElementNS(namespace, "text");
   legendTitle.setAttribute("x", "28");
   legendTitle.setAttribute("y", "42");
-  legendTitle.setAttribute("font-family", "Georgia, serif");
+  legendTitle.setAttribute("font-family", activeMap.isGenerated ? "sans-serif" : "Georgia, serif");
   legendTitle.setAttribute("font-size", "25");
   legendTitle.setAttribute("font-weight", "700");
   legendTitle.setAttribute("fill", textColor);
@@ -1736,7 +2689,7 @@ function addLegendToSvg(svg) {
     const text = document.createElementNS(namespace, "text");
     text.setAttribute("x", "72");
     text.setAttribute("y", String(y + 22));
-    text.setAttribute("font-family", "Arial, sans-serif");
+    text.setAttribute("font-family", "sans-serif");
     text.setAttribute("font-size", "20");
     text.setAttribute("fill", textColor);
     text.textContent = item.label || `Category ${index + 1}`;
@@ -1758,21 +2711,24 @@ function getExportTitleMetrics() {
   };
 }
 
-function addTitleToSvg(svg) {
+function addTitleToSvg(svg, autoSlot = null) {
   const namespace = "http://www.w3.org/2000/svg";
   const metrics = getExportTitleMetrics();
   if (!metrics) return;
 
   const [minX, minY, width, height] = currentMapViewBox;
   const margin = Math.min(width, height) * 0.025;
-  const top = state.exportOptions.titlePosition === "top";
+  const autoTitle = activeMap.isGenerated && state.exportOptions.titlePosition === "auto" && autoSlot;
+  const top = state.exportOptions.titlePosition !== "bottom";
   const title = document.createElementNS(namespace, "text");
   title.setAttribute("id", "maphue-title");
   title.setAttribute("pointer-events", "none");
-  title.setAttribute("x", String(minX + width / 2));
-  title.setAttribute("y", String(top ? minY + margin + metrics.fontSize : minY + height - margin));
+  title.setAttribute("x", String(autoTitle ? minX + autoSlot.x + autoSlot.width / 2 : minX + width / 2));
+  title.setAttribute("y", String(autoTitle
+    ? minY + autoSlot.y + (autoSlot.height + metrics.fontSize * 0.7) / 2
+    : top ? minY + margin + metrics.fontSize : minY + height - margin));
   title.setAttribute("text-anchor", "middle");
-  title.setAttribute("font-family", "Georgia, serif");
+  title.setAttribute("font-family", activeMap.isGenerated ? "sans-serif" : "Georgia, serif");
   title.setAttribute("font-size", String(metrics.fontSize));
   title.setAttribute("font-weight", "700");
   title.setAttribute("fill", "#18211d");
@@ -1784,22 +2740,124 @@ function addTitleToSvg(svg) {
   svg.append(title);
 }
 
+function getAutoTitleSlot() {
+  const metrics = getExportTitleMetrics();
+  if (!activeMap.isGenerated || !metrics || state.exportOptions.titlePosition !== "auto") return null;
+  const width = Math.min(currentMapDimensions.width * 0.88, metrics.text.length * metrics.fontSize * 0.56);
+  return selectAutoLegendSlot(activeMapMetadata, Math.max(metrics.fontSize * 3, width), metrics.fontSize * 1.5);
+}
+
+function getExportAttributionLayout() {
+  const metadata = activeMapMetadata || {};
+  const lines = [];
+  if (metadata.credit) lines.push(`Data credit: ${metadata.credit}`);
+  else lines.push(`Map data: ${activeMap.dataset}`);
+  const licence = [metadata.licence, metadata.shareAlike ? "share-alike terms apply" : ""]
+    .filter(Boolean).join(" · ");
+  if (licence) lines.push(`Licence: ${licence}`);
+  if (metadata.boundaryYear) lines.push(`Boundary year: ${metadata.boundaryYear}`);
+  const fontSize = Math.min(18, Math.max(10, currentMapDimensions.width * 0.011));
+  const maximumCharacters = Math.max(24, Math.floor(currentMapDimensions.width / (fontSize * 0.58)));
+  const wrapped = lines.flatMap((line) => wrapAttributionLine(line, maximumCharacters));
+  const visibleLines = wrapped.slice(0, 3);
+  if (wrapped.length > 3) visibleLines[2] = `${visibleLines[2].slice(0, Math.max(1, maximumCharacters - 1))}…`;
+  const lineHeight = fontSize * 1.35;
+  return {
+    lines: visibleLines,
+    fontSize,
+    lineHeight,
+    extraHeight: Math.ceil(16 + visibleLines.length * lineHeight),
+    description: [
+      metadata.credit && `Credit: ${metadata.credit}`,
+      metadata.licence && `Licence: ${metadata.licence}`,
+      metadata.licenceUrl && `Licence URL: ${metadata.licenceUrl}`,
+      metadata.shareAlike && "Share-alike conditions apply to derived maps.",
+      metadata.boundaryYear && `Boundary year: ${metadata.boundaryYear}`,
+      metadata.url && `Canonical map URL: ${metadata.url}`,
+    ].filter(Boolean).join(". "),
+  };
+}
+
+function wrapAttributionLine(value, maximumCharacters) {
+  const words = String(value).split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    if (line && `${line} ${word}`.length > maximumCharacters) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
+function addExportAttribution(svg) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const layout = getExportAttributionLayout();
+  const description = document.createElementNS(namespace, "desc");
+  description.setAttribute("id", "maphue-attribution");
+  description.textContent = layout.description || `Map data from ${activeMap.dataset}.`;
+  svg.append(description);
+
+  const [minX, minY, width, height] = currentMapViewBox;
+  const extraHeight = layout.extraHeight;
+  svg.setAttribute("viewBox", [minX, minY, width, height + extraHeight].join(" "));
+  svg.setAttribute("width", String(Math.round(width)));
+  svg.setAttribute("height", String(Math.round(height + extraHeight)));
+  const backdrop = document.createElementNS(namespace, "rect");
+  backdrop.setAttribute("id", "maphue-attribution-background");
+  backdrop.setAttribute("x", String(minX));
+  backdrop.setAttribute("y", String(minY + height));
+  backdrop.setAttribute("width", String(width));
+  backdrop.setAttribute("height", String(extraHeight));
+  backdrop.setAttribute("fill", "#fffefa");
+  svg.append(backdrop);
+
+  const text = document.createElementNS(namespace, "text");
+  text.setAttribute("id", "maphue-attribution-line");
+  text.setAttribute("x", String(minX + Math.min(width, height) * 0.025));
+  text.setAttribute("y", String(minY + height + 9 + layout.fontSize));
+  text.setAttribute("font-family", "sans-serif");
+  text.setAttribute("font-size", String(layout.fontSize));
+  text.setAttribute("fill", "#18211d");
+  layout.lines.forEach((line, index) => {
+    const span = document.createElementNS(namespace, "tspan");
+    span.setAttribute("x", String(minX + Math.min(width, height) * 0.025));
+    if (index) span.setAttribute("dy", String(layout.lineHeight));
+    span.textContent = line;
+    text.append(span);
+  });
+  svg.append(text);
+}
+
 function exportAssignmentsCsv() {
   if (hasPendingMapPreview()) return;
-  const rows = [["country", "iso2", "iso3", "legend", "color"]];
-  const assignments = Object.entries(state.assignments).filter(([code, index]) => {
-    return allCountryByCode.has(code) && state.palette[index];
-  });
-  assignments.sort(([a], [b]) =>
-    allCountryByCode.get(a).name.localeCompare(allCountryByCode.get(b).name, "en"),
-  );
-  for (const [code, index] of assignments) {
-    const country = allCountryByCode.get(code);
+  const rows = [["area", "code", "parent", "category", "color"]];
+  const assignments = Object.entries(state.assignments)
+    .map(([key, index]) => [normalizeAssignmentKey(key), index])
+    .filter(([key, index]) => key && state.palette[index])
+    .sort(([a], [b]) => assignmentLabel(a).localeCompare(assignmentLabel(b), "en"));
+  for (const [key, index] of assignments) {
+    const separator = key.indexOf(":");
+    const kind = key.slice(0, separator);
+    const code = key.slice(separator + 1);
     const palette = state.palette[index];
-    rows.push([country.name, country.alpha2, country.alpha3, palette.label, palette.color]);
+    const country = kind === "country" ? allCountryByCode.get(code.toUpperCase()) : null;
+    const feature = generatedFeatureIndex.records.find((record) =>
+      kind === "region"
+        ? record.code.toUpperCase() === code
+        : kind === "unit" && Array.isArray(record.units) && record.units.some((unit) => String(unit).toUpperCase() === code),
+    );
+    const area = country?.name || feature?.name || assignmentLabel(key);
+    const csvCode = kind === "unit" ? code : country?.alpha2 || feature?.code || code;
+    const parent = feature?.parentName || "";
+    rows.push([area, csvCode, parent, palette.label, palette.color]);
   }
   const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
-  downloadBlob(csv, "maphue-assignments.csv", "text/csv;charset=utf-8");
+  downloadBlob(csv, exportFilename("csv"), "text/csv;charset=utf-8");
   showToast("Assignments CSV downloaded");
 }
 

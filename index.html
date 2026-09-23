@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Color countries on a world map, build a legend, import CSV data, and export the result as SVG."
+      content="Create blank maps, color countries and regions, import CSV data, and export maps with their source credit."
     >
-    <title>Maphue — Wikimedia world map color studio</title>
+    <title>Maphue — map coloring studio</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -102,20 +102,80 @@
                   type="button"
                   data-map-scope="world"
                   aria-pressed="true"
-                >World · countries</button>
+                >World maps</button>
                 <button
                   type="button"
                   data-map-scope="continent"
                   aria-pressed="false"
                 >Continents</button>
+                <button
+                  type="button"
+                  data-map-scope="generated"
+                  aria-pressed="false"
+                >Build a map</button>
               </div>
 
-              <label class="field" for="map-select">
+              <label class="field map-catalog-field" for="map-select">
                 <span id="map-select-label">Base map</span>
                 <select id="map-select" disabled>
                   <option>Loading maps from Commons…</option>
                 </select>
               </label>
+
+              <div class="generated-map-options" id="generated-map-options" hidden>
+                <p class="section-note">
+                  Choose a dataset and region to create a fresh SVG map. Map requests go to Map Generator on Toolforge; Maphue does not send or store your coloring data there.
+                </p>
+                <label class="field" for="mapgen-dataset">
+                  <span>Boundary dataset</span>
+                  <select id="mapgen-dataset" disabled>
+                    <option>Loading map datasets…</option>
+                  </select>
+                </label>
+                <label class="field" for="mapgen-region">
+                  <span>Area</span>
+                  <select id="mapgen-region" disabled>
+                    <option>Choose a dataset first</option>
+                  </select>
+                </label>
+                <div class="field-group">
+                  <label class="check-field" for="mapgen-labels">
+                    <input id="mapgen-labels" type="checkbox" checked>
+                    <span>Show labels</span>
+                  </label>
+                  <label class="field" for="mapgen-theme">
+                    <span>Map style</span>
+                    <select id="mapgen-theme" disabled>
+                      <option value="">Default</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="field-group">
+                  <label class="field" for="mapgen-languages">
+                    <span>Label languages</span>
+                    <input id="mapgen-languages" type="text" placeholder="en, fr, zh-Hant">
+                  </label>
+                  <label class="field" for="mapgen-worldview">
+                    <span>Border viewpoint</span>
+                    <select id="mapgen-worldview" disabled>
+                      <option value="">Default</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="check-field" for="mapgen-custom-bounds">
+                  <input id="mapgen-custom-bounds" type="checkbox">
+                  <span>Use a custom map frame</span>
+                </label>
+                <label class="field mapgen-bounds-field" for="mapgen-bounds" hidden>
+                  <span>West, south, east, north</span>
+                  <input id="mapgen-bounds" type="text" inputmode="decimal" placeholder="-10, 35, 32, 72" aria-describedby="mapgen-bounds-help">
+                  <small class="field-help" id="mapgen-bounds-help">Longitude and latitude in decimal degrees.</small>
+                </label>
+                <button class="primary-action mapgen-create-button" id="mapgen-create-button" type="button" disabled>
+                  <span>Create blank map</span>
+                </button>
+                <output class="mapgen-status" id="mapgen-status" role="status" aria-live="polite" hidden></output>
+              </div>
 
               <div class="map-choice-summary">
                 <div class="map-choice-thumbnail">
@@ -145,12 +205,12 @@
                 <span class="section-meta" id="country-total">— available</span>
               </div>
 
-              <p class="section-note">
-                Search by English name, ISO-2, or ISO-3. Select a country to cycle its color.
+              <p class="section-note" id="region-help">
+                Search by country name, ISO code, or region. Select an area to cycle its color.
               </p>
 
               <label class="search-field field" for="country-search">
-                <span>Find a country</span>
+                <span id="region-search-label">Find a country or region</span>
                 <span class="search-input">
                   <svg aria-hidden="true" viewBox="0 0 20 20">
                     <path d="m14.5 14.5 4 4m-2-10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"></path>
@@ -158,13 +218,13 @@
                   <input
                     id="country-search"
                     type="search"
-                    placeholder="France, FR, or FRA"
+                    placeholder="France, FR-75, or Lancaster"
                     autocomplete="off"
                   >
                 </span>
               </label>
 
-              <div class="country-list" id="country-list" role="group" aria-label="Countries"></div>
+              <div class="country-list" id="country-list" role="group" aria-label="Map areas"></div>
               <p class="empty-state" id="country-empty" hidden>No matching countries.</p>
             </section>
 
@@ -211,52 +271,59 @@
 
                 <fieldset class="annotation-options" id="legend-options">
                   <legend>Legend position</legend>
-                  <div class="position-picker" id="legend-position">
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="top-left">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Top left</span>
+                  <div class="legend-position-controls" id="legend-position-controls">
+                    <label class="auto-position" title="Automatic placement uses the largest open area on generated maps.">
+                      <input class="sr-only" type="radio" name="legend-position" value="auto" checked>
+                      <span aria-hidden="true">Auto place</span>
+                      <span class="sr-only">Automatic legend placement</span>
                     </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="top-center">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Top center</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="top-right">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Top right</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="center-left">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Center left</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="center">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Center</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="center-right">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Center right</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="bottom-left" checked>
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Bottom left</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="bottom-center">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Bottom center</span>
-                    </label>
-                    <label>
-                      <input class="sr-only" type="radio" name="legend-position" value="bottom-right">
-                      <span aria-hidden="true"></span>
-                      <span class="sr-only">Bottom right</span>
-                    </label>
+                    <div class="position-picker" id="legend-position">
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="top-left">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Top left</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="top-center">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Top center</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="top-right">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Top right</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="center-left">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Center left</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="center">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Center</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="center-right">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Center right</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="bottom-left">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Bottom left</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="bottom-center">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Bottom center</span>
+                      </label>
+                      <label>
+                        <input class="sr-only" type="radio" name="legend-position" value="bottom-right">
+                        <span aria-hidden="true"></span>
+                        <span class="sr-only">Bottom right</span>
+                      </label>
+                    </div>
                   </div>
 
                   <div class="legend-style-controls">
@@ -307,6 +374,7 @@
                   <label class="field">
                     <span>Title position</span>
                     <select id="title-position">
+                      <option value="auto">Automatic open area</option>
                       <option value="top">Top center</option>
                       <option value="bottom">Bottom center</option>
                     </select>
@@ -325,10 +393,10 @@
               </div>
 
               <p class="section-note">
-                Import a country list into one category, or use a country/category CSV to assign several categories at once. Unlisted countries keep their current colors.
+                Import a country or region list into one category, or use a category column to assign several categories at once. Unlisted areas keep their current colors.
               </p>
               <p class="section-note">
-                Category values must match legend labels. Kosovo is recognized by its common code, XK.
+                Category values must match legend labels. Subdivision names can be paired with a state, province, or parent column.
               </p>
 
               <label class="field" for="import-text">
@@ -343,7 +411,7 @@
 
               <div class="field-group import-options">
                 <label class="field">
-                  <span>Country column</span>
+                  <span>Region / country column</span>
                   <select id="import-column">
                     <option value="auto">Detect automatically</option>
                   </select>
@@ -378,6 +446,9 @@
                 </button>
               </div>
               <div class="import-actions">
+                <button class="secondary-action" id="recode-import-button" type="button" hidden>
+                  <span>Recode old boundary codes</span>
+                </button>
                 <button class="primary-action" id="apply-import-button" type="button" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -421,7 +492,7 @@
                 class="map-container"
                 id="map-container"
                 role="img"
-                aria-label="Interactive political map of the world"
+                aria-label="Interactive map"
               ></div>
               <output class="map-tooltip" id="map-tooltip" hidden></output>
               <div class="canvas-metadata">
@@ -435,6 +506,7 @@
             <div class="export-info">
               <strong>Export your map</strong>
               <span>Annotations use the export layout settings and remain editable in SVG.</span>
+              <span class="share-alike-note" id="share-alike-note" hidden></span>
             </div>
             <div class="export-actions">
               <button class="secondary-action" id="download-csv-button" type="button">
@@ -472,7 +544,7 @@
       <footer class="app-footer">
         <span id="save-status">Saved locally</span>
         <span aria-hidden="true">/</span>
-        <span>Data stays in your browser</span>
+        <span>Colors and imports stay local</span>
         <span aria-hidden="true">/</span>
         <a href="https://github.com/schiste/map-coloring">GitHub</a>
         <span aria-hidden="true">/</span>
@@ -487,7 +559,7 @@
         <form method="dialog">
           <span class="dialog-kicker">Clear map</span>
           <h2>Start over?</h2>
-          <p>This removes every country assignment and restores the default palette.</p>
+          <p>This removes every area assignment and restores the default palette.</p>
           <div class="dialog-actions">
             <button class="secondary-action" value="cancel">Keep editing</button>
             <button class="danger-action" id="confirm-reset-button" value="confirm">Reset map</button>
