@@ -123,61 +123,81 @@
               </label>
 
               <div class="generated-map-options" id="generated-map-options" hidden>
-                <p class="section-note">
-                  Choose a dataset and region to create a fresh SVG map. Map requests go to Map Generator on Toolforge; Maphue does not send or store your coloring data there.
-                </p>
+                <div class="mapgen-intro">
+                  <span class="mapgen-kicker">CUSTOM MAP</span>
+                  <p>Choose public boundaries and one or more areas. Your current map stays on the canvas until the new map is ready.</p>
+                  <small>Map geometry is requested from Map Generator. Your colors and imported CSV stay in this browser.</small>
+                </div>
                 <label class="field" for="mapgen-dataset">
                   <span>Boundary dataset</span>
                   <select id="mapgen-dataset" disabled>
                     <option>Loading map datasets…</option>
                   </select>
                 </label>
-                <label class="field" for="mapgen-region">
-                  <span>Area</span>
-                  <select id="mapgen-region" disabled>
-                    <option>Choose a dataset first</option>
-                  </select>
-                </label>
-                <div class="field-group">
-                  <label class="check-field" for="mapgen-labels">
-                    <input id="mapgen-labels" type="checkbox" checked>
-                    <span>Show labels</span>
+                <section class="mapgen-area-picker" aria-labelledby="mapgen-area-heading">
+                  <div class="mapgen-field-header">
+                    <div>
+                      <h3 id="mapgen-area-heading">Choose areas</h3>
+                      <p>Choose World, or search by name or code and combine areas.</p>
+                    </div>
+                    <span class="mapgen-selection-count" id="mapgen-selection-count">0 selected</span>
+                  </div>
+                  <label class="field mapgen-search-field" for="mapgen-region-search">
+                    <span class="sr-only">Search areas by name or code</span>
+                    <input id="mapgen-region-search" type="search" autocomplete="off" placeholder="Search areas…" disabled>
                   </label>
-                  <label class="field" for="mapgen-theme">
-                    <span>Map style</span>
-                    <select id="mapgen-theme" disabled>
-                      <option value="">Default</option>
-                    </select>
-                  </label>
+                  <div class="mapgen-selected-regions" id="mapgen-selected-regions" aria-label="Selected areas" aria-live="polite"></div>
+                  <div class="mapgen-region-list" id="mapgen-region-list" role="group" aria-label="Available map areas"></div>
+                  <p class="mapgen-region-empty" id="mapgen-region-empty" role="status" hidden>No matching areas. Try another name or code.</p>
+                </section>
+                <details class="mapgen-appearance">
+                  <summary>Map appearance <span>Optional</span></summary>
+                  <div class="mapgen-appearance-fields">
+                    <div class="field-group">
+                      <label class="check-field" for="mapgen-labels">
+                        <input id="mapgen-labels" type="checkbox" checked>
+                        <span>Show labels</span>
+                      </label>
+                      <label class="field" for="mapgen-theme">
+                        <span>Map style</span>
+                        <select id="mapgen-theme" disabled>
+                          <option value="">Default</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="field-group">
+                      <label class="field" for="mapgen-languages">
+                        <span>Label languages</span>
+                        <input id="mapgen-languages" type="text" placeholder="Optional · en, fr, zh-Hant">
+                      </label>
+                      <label class="field" for="mapgen-worldview">
+                        <span>Border viewpoint</span>
+                        <select id="mapgen-worldview" disabled>
+                          <option value="">Default</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label class="check-field" for="mapgen-custom-bounds">
+                      <input id="mapgen-custom-bounds" type="checkbox">
+                      <span>Use a custom map frame</span>
+                    </label>
+                    <label class="field mapgen-bounds-field" for="mapgen-bounds" hidden>
+                      <span>West, south, east, north</span>
+                      <input id="mapgen-bounds" type="text" inputmode="decimal" placeholder="-10, 35, 32, 72" aria-describedby="mapgen-bounds-help">
+                      <small class="field-help" id="mapgen-bounds-help">Longitude and latitude in decimal degrees.</small>
+                    </label>
+                  </div>
+                </details>
+                <div class="mapgen-create-area">
+                  <button class="primary-action mapgen-create-button" id="mapgen-create-button" type="button" disabled>
+                    <span>Create and use map</span>
+                  </button>
+                  <small>The map switches in after it has loaded successfully.</small>
                 </div>
-                <div class="field-group">
-                  <label class="field" for="mapgen-languages">
-                    <span>Label languages</span>
-                    <input id="mapgen-languages" type="text" placeholder="en, fr, zh-Hant">
-                  </label>
-                  <label class="field" for="mapgen-worldview">
-                    <span>Border viewpoint</span>
-                    <select id="mapgen-worldview" disabled>
-                      <option value="">Default</option>
-                    </select>
-                  </label>
-                </div>
-                <label class="check-field" for="mapgen-custom-bounds">
-                  <input id="mapgen-custom-bounds" type="checkbox">
-                  <span>Use a custom map frame</span>
-                </label>
-                <label class="field mapgen-bounds-field" for="mapgen-bounds" hidden>
-                  <span>West, south, east, north</span>
-                  <input id="mapgen-bounds" type="text" inputmode="decimal" placeholder="-10, 35, 32, 72" aria-describedby="mapgen-bounds-help">
-                  <small class="field-help" id="mapgen-bounds-help">Longitude and latitude in decimal degrees.</small>
-                </label>
-                <button class="primary-action mapgen-create-button" id="mapgen-create-button" type="button" disabled>
-                  <span>Create blank map</span>
-                </button>
                 <output class="mapgen-status" id="mapgen-status" role="status" aria-live="polite" hidden></output>
               </div>
 
-              <div class="map-choice-summary">
+              <div class="map-choice-summary" id="map-choice-summary">
                 <div class="map-choice-thumbnail">
                   <img id="map-thumbnail" alt="" hidden>
                   <span id="map-thumbnail-placeholder">SVG</span>

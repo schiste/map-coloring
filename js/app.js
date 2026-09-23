@@ -212,6 +212,7 @@ let mapgenClientPromise = null;
 let mapgenClient = null;
 let mapgenDatasets = [];
 let mapgenRegions = [];
+let selectedMapgenRegions = new Set();
 let mapgenThemes = [];
 let activeGeneratedFeatures = [];
 let generatedFeatureIndex = { records: [], byCode: new Map(), byName: new Map(), byUnit: new Map() };
@@ -242,9 +243,14 @@ const elements = {
   mapDescription: document.querySelector("#map-description"),
   mapCompatibility: document.querySelector("#map-compatibility"),
   mapSourceLink: document.querySelector("#map-source-link"),
+  mapChoiceSummary: document.querySelector("#map-choice-summary"),
   generatedMapOptions: document.querySelector("#generated-map-options"),
   mapgenDataset: document.querySelector("#mapgen-dataset"),
-  mapgenRegion: document.querySelector("#mapgen-region"),
+  mapgenRegionSearch: document.querySelector("#mapgen-region-search"),
+  mapgenRegionList: document.querySelector("#mapgen-region-list"),
+  mapgenSelectedRegions: document.querySelector("#mapgen-selected-regions"),
+  mapgenSelectionCount: document.querySelector("#mapgen-selection-count"),
+  mapgenRegionEmpty: document.querySelector("#mapgen-region-empty"),
   mapgenLabels: document.querySelector("#mapgen-labels"),
   mapgenLanguages: document.querySelector("#mapgen-languages"),
   mapgenWorldview: document.querySelector("#mapgen-worldview"),
@@ -420,29 +426,55 @@ async function getMapgenClient() {
   return mapgenClientPromise;
 }
 
+function mapgenRegionCodes(regions, fallback = "") {
+  const values = Array.isArray(regions) && regions.length
+    ? regions
+    : String(fallback || "").split(",");
+  return [...new Set(values
+    .map((region) => typeof region === "string" ? region : region?.code)
+    .map((code) => String(code || "").trim())
+    .filter(Boolean))];
+}
+
+async function fetchGeneratedFeatures(api, dataset, regionCodes, languages) {
+  const features = [];
+  const batchSize = 8;
+  for (let index = 0; index < regionCodes.length; index += batchSize) {
+    const batch = regionCodes.slice(index, index + batchSize);
+    const payloads = await Promise.all(batch.map((code) => api.features(dataset, code, languages)));
+    features.push(...payloads.flatMap((payload) => collectionFrom(payload, "features")));
+  }
+  return features;
+}
+
 async function fetchGeneratedMap(config) {
   const api = await getMapgenClient();
   const spec = { target: "commons", width: 1600, ...(config.spec || {}) };
+  const regionCodes = mapgenRegionCodes(config.regions, config.region);
+  if (!regionCodes.length) throw new Error("Choose at least one area to create a map.");
+  const region = regionCodes.join(",");
+  const selectedRegions = Array.isArray(config.regions) ? config.regions : [];
   const languages = Array.isArray(spec.languages) ? spec.languages : [];
-  const [svgText, metadataPayload, featurePayload] = await Promise.all([
-    api.map(config.dataset, config.region, spec),
-    api.metadata(config.dataset, config.region, spec),
-    api.features(config.dataset, config.region, languages),
+  const [svgText, metadataPayload, features] = await Promise.all([
+    api.map(config.dataset, region, spec),
+    api.metadata(config.dataset, region, spec),
+    fetchGeneratedFeatures(api, config.dataset, regionCodes, languages),
   ]);
   const metadata = metadataPayload?.metadata || metadataPayload || {};
   assertSupportedMapgenSvg(svgText);
-  const features = collectionFrom(featurePayload, "features");
   if (!features.length) throw new Error("This map has no colorable regions.");
-  const regionName = config.regionName || config.region;
+  const regionName = config.regionName ||
+    selectedRegions.map((item) => typeof item === "string" ? item : item?.name || item?.code).filter(Boolean).join(", ") ||
+    region;
   const datasetName = config.datasetName || config.dataset;
-  const canonicalUrl = metadata.url || api.mapUrl(config.dataset, config.region, spec);
+  const canonicalUrl = metadata.url || api.mapUrl(config.dataset, region, spec);
   const map = {
-    title: `mapgen:${config.dataset}:${config.region}`,
-    name: `${regionName} · ${datasetName}`,
+    title: "mapgen:" + config.dataset + ":" + region,
+    name: regionName + " · " + datasetName,
     description: [
       metadata.credit,
-      metadata.licence && `Licence: ${metadata.licence}`,
-      metadata.boundaryYear && `Boundaries: ${metadata.boundaryYear}`,
+      metadata.licence && "Licence: " + metadata.licence,
+      metadata.boundaryYear && "Boundaries: " + metadata.boundaryYear,
     ].filter(Boolean).join(" · ") || "Generated blank map from Map Generator.",
     url: canonicalUrl,
     thumbnailUrl: "",
@@ -452,13 +484,14 @@ async function fetchGeneratedMap(config) {
     fallback: false,
     isGenerated: true,
     dataset: config.dataset,
-    region: config.region,
+    region,
     spec,
     metadata,
     features,
   };
   return { map, svgText, metadata, features };
 }
+
 
 async function loadMapgenCatalog() {
   const api = await getMapgenClient();
@@ -468,12 +501,16 @@ async function loadMapgenCatalog() {
   renderMapgenCatalog();
   if (state.generatedMap && state.mapScope === "generated") {
     elements.mapgenDataset.value = state.generatedMap.dataset;
-    await loadMapgenRegions(state.generatedMap.dataset, state.generatedMap.region);
+    const preferredRegions = state.generatedMap.regions?.length
+      ? state.generatedMap.regions
+      : state.generatedMap.region;
+    await loadMapgenRegions(state.generatedMap.dataset, preferredRegions);
     applyGeneratedConfigToForm(state.generatedMap);
   } else if (elements.mapgenDataset.value) {
     await loadMapgenRegions(elements.mapgenDataset.value);
   }
 }
+
 
 function applyGeneratedConfigToForm(config) {
   const spec = config.spec || {};
@@ -498,19 +535,20 @@ function applyGeneratedConfigToForm(config) {
 }
 
 function renderMapgenCatalog() {
-  const previous = mapgenDatasets.some((dataset) => dataset.id === elements.mapgenDataset.value)
-    ? elements.mapgenDataset.value
-    : state.generatedMap?.dataset || "";
+  const currentDataset = mapgenDatasets.find((dataset) => dataset.id === elements.mapgenDataset.value);
+  const savedDataset = mapgenDatasets.find((dataset) => dataset.id === state.generatedMap?.dataset);
+  const defaultDataset = mapgenDatasets.find((dataset) => dataset.id === "ne-admin0") ||
+    mapgenDatasets.find((dataset) => dataset.world) ||
+    mapgenDatasets[0];
+  const selectedDataset = currentDataset || savedDataset || defaultDataset;
   elements.mapgenDataset.replaceChildren(...mapgenDatasets.map((dataset) => {
     const option = document.createElement("option");
     option.value = dataset.id;
-    option.textContent = `${dataset.title || dataset.id} · ${dataset.level || "map"}`;
+    option.textContent = (dataset.title || dataset.id) + " · " + (dataset.level || "map");
     return option;
   }));
   elements.mapgenDataset.disabled = mapgenDatasets.length === 0;
-  if (mapgenDatasets.some((dataset) => dataset.id === previous)) {
-    elements.mapgenDataset.value = previous;
-  }
+  if (selectedDataset) elements.mapgenDataset.value = selectedDataset.id;
 
   const themeRows = mapgenThemes.map((theme) => typeof theme === "string"
     ? { id: theme, title: theme }
@@ -520,34 +558,89 @@ function renderMapgenCatalog() {
     ...themeRows.filter((theme) => theme.id).map((theme) => new Option(theme.title, theme.id)),
   );
   elements.mapgenTheme.disabled = themeRows.length === 0;
-  elements.mapgenCreateButton.disabled = mapgenDatasets.length === 0;
-  const dataset = mapgenDatasets.find((item) => item.id === elements.mapgenDataset.value);
-  renderMapgenOptionsForDataset(dataset);
+  renderMapgenOptionsForDataset(selectedDataset);
 }
 
-async function loadMapgenRegions(datasetId, preferredRegion = "") {
+async function loadMapgenRegions(datasetId, preferredRegions) {
   const requestId = ++mapgenRegionRequestId;
   mapgenRegions = [];
-  elements.mapgenRegion.disabled = true;
-  elements.mapgenCreateButton.disabled = true;
-  elements.mapgenRegion.replaceChildren(new Option("Loading areas…", ""));
+  selectedMapgenRegions = new Set();
+  elements.mapgenRegionSearch.disabled = true;
+  elements.mapgenRegionSearch.value = "";
+  elements.mapgenRegionList.replaceChildren();
+  elements.mapgenRegionEmpty.hidden = true;
+  elements.mapgenRegionList.setAttribute("aria-busy", "true");
+  syncMapgenRegionSelection();
   const api = await getMapgenClient();
   const regions = collectionFrom(await api.regions(datasetId), "regions");
   if (requestId !== mapgenRegionRequestId || elements.mapgenDataset.value !== datasetId) return;
   mapgenRegions = regions;
-  elements.mapgenRegion.replaceChildren(...regions.map((region) => {
-    const option = document.createElement("option");
-    option.value = region.code;
-    option.textContent = region.name || region.code;
-    return option;
-  }));
-  elements.mapgenRegion.disabled = regions.length === 0;
-  if (regions.some((region) => region.code === preferredRegion)) {
-    elements.mapgenRegion.value = preferredRegion;
-  }
-  elements.mapgenCreateButton.disabled = regions.length === 0;
-  renderMapgenOptionsForDataset(mapgenDatasets.find((item) => item.id === datasetId));
+  const dataset = mapgenDatasets.find((item) => item.id === datasetId);
+  const defaults = preferredRegions === undefined
+    ? (dataset?.world ? ["world"] : [])
+    : mapgenRegionCodes(preferredRegions);
+  selectedMapgenRegions = new Set(defaults.filter((code) =>
+    mapgenRegions.some((region) => region.code === code),
+  ));
+  elements.mapgenRegionSearch.disabled = regions.length === 0;
+  elements.mapgenRegionList.removeAttribute("aria-busy");
+  renderMapgenRegionChoices();
+  renderMapgenOptionsForDataset(dataset);
 }
+
+function renderMapgenRegionChoices() {
+  const query = normalizeMapLookup(elements.mapgenRegionSearch.value);
+  const visibleRegions = [...mapgenRegions]
+    .sort((a, b) => {
+      const aWorld = String(a.code).toLowerCase() === "world";
+      const bWorld = String(b.code).toLowerCase() === "world";
+      return Number(bWorld) - Number(aWorld) || String(a.name || a.code).localeCompare(String(b.name || b.code));
+    })
+    .filter((region) => !query || normalizeMapLookup((region.name || "") + " " + (region.code || "")).includes(query));
+  elements.mapgenRegionList.replaceChildren(...visibleRegions.map((region) => {
+    const label = document.createElement("label");
+    label.className = "mapgen-region-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.regionCode = region.code;
+    checkbox.checked = selectedMapgenRegions.has(region.code);
+    const text = document.createElement("span");
+    const name = document.createElement("span");
+    name.textContent = region.name || region.code;
+    const code = document.createElement("small");
+    code.textContent = region.code;
+    text.append(name, code);
+    label.append(checkbox, text);
+    return label;
+  }));
+  elements.mapgenRegionEmpty.hidden = visibleRegions.length > 0;
+  syncMapgenRegionSelection();
+}
+
+function syncMapgenRegionSelection() {
+  const selected = mapgenRegions.filter((region) => selectedMapgenRegions.has(region.code));
+  elements.mapgenSelectionCount.textContent = selected.length + " selected";
+  elements.mapgenSelectedRegions.replaceChildren(...selected.map((region) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "mapgen-selected-region-chip";
+    chip.dataset.removeMapgenRegion = region.code;
+    chip.setAttribute("aria-label", "Remove " + (region.name || region.code));
+    const name = document.createElement("span");
+    name.textContent = region.name || region.code;
+    const remove = document.createElement("span");
+    remove.setAttribute("aria-hidden", "true");
+    remove.textContent = "×";
+    chip.append(name, remove);
+    return chip;
+  }));
+  elements.mapgenRegionList.querySelectorAll("input[data-region-code]").forEach((checkbox) => {
+    checkbox.checked = selectedMapgenRegions.has(checkbox.dataset.regionCode);
+  });
+  const busy = elements.mapgenCreateButton.getAttribute("aria-busy") === "true";
+  elements.mapgenCreateButton.disabled = mapgenRegions.length === 0 || selected.length === 0 || busy;
+}
+
 
 function renderMapgenOptionsForDataset(dataset) {
   const worldviews = Array.isArray(dataset?.worldviews) ? dataset.worldviews : [];
@@ -633,9 +726,9 @@ function mapsForScope(scope) {
 
 async function handleGeneratedMapCreate() {
   const dataset = mapgenDatasets.find((item) => item.id === elements.mapgenDataset.value);
-  const region = mapgenRegions.find((item) => item.code === elements.mapgenRegion.value);
-  if (!dataset || !region) {
-    setGeneratedStatus("Choose a boundary dataset and area first.", true);
+  const selectedRegions = mapgenRegions.filter((item) => selectedMapgenRegions.has(item.code));
+  if (!dataset || !selectedRegions.length) {
+    setGeneratedStatus("Choose a boundary dataset and at least one area first.", true);
     return;
   }
 
@@ -668,8 +761,9 @@ async function handleGeneratedMapCreate() {
   const config = {
     dataset: dataset.id,
     datasetName: dataset.title || dataset.id,
-    region: region.code,
-    regionName: region.name || region.code,
+    region: selectedRegions.map((region) => region.code).join(","),
+    regionName: selectedRegions.map((region) => region.name || region.code).join(", "),
+    regions: selectedRegions.map((region) => ({ code: region.code, name: region.name || region.code })),
     spec,
   };
   await switchToGeneratedMap(config);
@@ -700,11 +794,18 @@ async function switchToGeneratedMap(config, { restore = false } = {}) {
     activeGeneratedFeatures = bundle.features;
     generationError = "";
     state.mapScope = "generated";
+    const selectedRegions = Array.isArray(config.regions) && config.regions.length
+      ? config.regions
+      : mapgenRegionCodes(null, config.region).map((code) => ({ code, name: code }));
     state.generatedMap = {
       dataset: config.dataset,
       datasetName: config.datasetName || config.dataset,
-      region: config.region,
-      regionName: config.regionName || config.region,
+      region: config.region || selectedRegions.map((item) => item.code).join(","),
+      regionName: config.regionName || selectedRegions.map((item) => item.name || item.code).join(", "),
+      regions: selectedRegions.map((item) => ({
+        code: String(typeof item === "string" ? item : item.code),
+        name: String(typeof item === "string" ? item : item.name || item.code),
+      })),
       spec: bundle.map.spec,
       url: bundle.metadata.url || bundle.map.url,
     };
@@ -729,8 +830,8 @@ async function switchToGeneratedMap(config, { restore = false } = {}) {
   } finally {
     if (requestId === mapgenSwitchRequestId) {
       elements.mapLoading.hidden = true;
-      elements.mapgenCreateButton.disabled = mapgenRegions.length === 0;
       elements.mapgenCreateButton.removeAttribute("aria-busy");
+      syncMapgenRegionSelection();
       requestAnimationFrame(() => elements.mapContainer.classList.add("is-ready"));
     }
   }
@@ -739,8 +840,8 @@ async function switchToGeneratedMap(config, { restore = false } = {}) {
 async function switchToMap(nextMap, options = {}) {
   const requestId = ++mapSwitchRequestId;
   mapgenSwitchRequestId += 1;
-  elements.mapgenCreateButton.disabled = mapgenRegions.length === 0;
   elements.mapgenCreateButton.removeAttribute("aria-busy");
+  syncMapgenRegionSelection();
   const previousMap = activeMap;
   const previousScope = options.previousScope || state.mapScope;
   const requestedScope = options.scope || state.mapScope;
@@ -827,8 +928,17 @@ function restoreState() {
     );
     if (saved.generatedMap && typeof saved.generatedMap === "object") {
       const dataset = String(saved.generatedMap.dataset || "");
-      const region = String(saved.generatedMap.region || "");
-      if (/^[a-z0-9-]{1,80}$/i.test(dataset) && /^[a-z0-9 _.,:-]{1,120}$/i.test(region)) {
+      const savedRegions = Array.isArray(saved.generatedMap.regions)
+        ? saved.generatedMap.regions
+            .map((item) => ({
+              code: String(typeof item === "string" ? item : item?.code || "").trim(),
+              name: String(typeof item === "string" ? item : item?.name || item?.code || "").slice(0, 120),
+            }))
+            .filter((item) => /^[a-z0-9._:-]{1,40}$/i.test(item.code))
+            .slice(0, 300)
+        : [];
+      const region = String(saved.generatedMap.region || savedRegions.map((item) => item.code).join(",")).trim();
+      if (/^[a-z0-9-]{1,80}$/i.test(dataset) && /^[a-z0-9 _.,:-]{1,4000}$/i.test(region)) {
         const savedSpec = saved.generatedMap.spec && typeof saved.generatedMap.spec === "object"
           ? saved.generatedMap.spec
           : {};
@@ -836,7 +946,8 @@ function restoreState() {
           dataset,
           datasetName: String(saved.generatedMap.datasetName || dataset).slice(0, 100),
           region,
-          regionName: String(saved.generatedMap.regionName || region).slice(0, 120),
+          regionName: String(saved.generatedMap.regionName || savedRegions.map((item) => item.name).join(", ") || region).slice(0, 120),
+          regions: savedRegions,
           spec: {
             target: "commons",
             width: Number.isFinite(savedSpec.width) ? Math.min(4000, Math.max(300, savedSpec.width)) : 1600,
@@ -1129,6 +1240,29 @@ function bindStaticEvents() {
         setGeneratedStatus(`Areas could not be loaded. ${error.message}`, true);
       }
     });
+  });
+  elements.mapgenRegionSearch.addEventListener("input", renderMapgenRegionChoices);
+  elements.mapgenRegionList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("input[data-region-code]");
+    if (!checkbox) return;
+    const code = checkbox.dataset.regionCode;
+    if (checkbox.checked) {
+      if (code.toLowerCase() === "world") {
+        selectedMapgenRegions.clear();
+      } else {
+        selectedMapgenRegions.delete("world");
+      }
+      selectedMapgenRegions.add(code);
+    } else {
+      selectedMapgenRegions.delete(code);
+    }
+    syncMapgenRegionSelection();
+  });
+  elements.mapgenSelectedRegions.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-mapgen-region]");
+    if (!removeButton) return;
+    selectedMapgenRegions.delete(removeButton.dataset.removeMapgenRegion);
+    syncMapgenRegionSelection();
   });
   elements.mapgenCustomBounds.addEventListener("change", () => {
     elements.mapgenBoundsField.hidden = !elements.mapgenCustomBounds.checked;
@@ -1441,8 +1575,9 @@ function renderMapPicker() {
   });
   elements.generatedMapOptions.hidden = !generated;
   elements.mapSelect.parentElement.hidden = generated;
+  elements.mapChoiceSummary.hidden = generated && !activeMap.isGenerated;
   elements.mapScopeNote.textContent = generated
-    ? "Make a blank map from current public boundary data."
+    ? "Choose public boundaries. The canvas switches only after the new map is ready."
     : state.mapScope === "world"
       ? "Choose a verified world map from Wikimedia Commons."
       : "Choose a continent-focused map from Wikimedia Commons.";

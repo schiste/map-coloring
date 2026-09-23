@@ -13,7 +13,7 @@ downloaded and compared locally.
 
 - Click countries to cycle through 2–8 custom colors
 - Choose verified interactive SVGs from the Commons world-map category
-- Create a blank map from public Map Generator datasets, including world maps, countries, first-level subdivisions, and US counties
+- Create a blank map from one or more areas in public Map Generator datasets, including world maps, countries, first-level subdivisions, and US counties
 - Set a custom map frame, labels, label languages, border viewpoint, and map theme
 - Switch between world country maps and continent-focused maps
 - Switch between curated Europe and Africa maps while retaining ISO color assignments
