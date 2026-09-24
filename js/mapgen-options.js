@@ -270,12 +270,19 @@ export function renderForm(container, model, values, { themeColors = {}, colors 
       control = el("div", { className: "mapgen-token-control", "data-token-control": option.name }, chips, entry, stored);
     } else if (option.widget === "bbox" && option.presets.length) {
       const isPreset = option.presets.includes(String(value ?? ""));
+      const chosen = isPreset ? String(value) : "__custom__";
+      const choice = (optionValue, text) => {
+        // The `selected` attribute rather than select.value: the same in
+        // browsers and in the tests' DOM.
+        const item = el("option", { value: optionValue, text });
+        if (optionValue === chosen) item.setAttribute("selected", "");
+        return item;
+      };
       const select = el("select", { id, "data-bbox-preset": option.name, "aria-describedby": help.id },
-        el("option", { value: "__custom__", text: "Custom coordinates" }));
+        choice("__custom__", "Custom coordinates"));
       for (const preset of option.presets) {
-        select.append(el("option", { value: preset, text: preset.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) }));
+        select.append(choice(preset, preset.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())));
       }
-      select.value = isPreset ? String(value) : "__custom__";
       const custom = el("input", { type: "text", id: `${id}-coordinates`, "data-bbox-custom": option.name, "aria-describedby": help.id, autocomplete: "off", spellcheck: "false", placeholder: "west, south, east, north" });
       custom.value = isPreset ? "" : String(value ?? "");
       custom.hidden = isPreset;

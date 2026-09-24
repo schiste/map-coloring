@@ -52,7 +52,8 @@ test("the description is valid and covers every setting Maphue shows", () => {
   }
   // Maphue exports for Commons: those options are fixed, not shown.
   assert.ok(!names.includes("target") && !names.includes("css-vars"));
-  assert.deepEqual(m.groups.map((g) => g.id), ["map", "labels", "frame", "borders", "credit", "output"]);
+  // Colours are a group of their own, in the API's order.
+  assert.deepEqual(m.groups.map((g) => g.id), ["map", "labels", "frame", "borders", "colors", "credit", "output"]);
   assert.ok(m.colorSlots.some((s) => s.slot === "water"));
 });
 
@@ -149,23 +150,33 @@ test("the form renders every widget and reads back what it shows", () => {
   const m = model();
   const values = valuesFromSpec(m, { projection: "albers", parallels: [30, 60], title: "Benelux", showTitle: true });
   const container = form(m, values, { themeColors: themes.wikimedia, colors: { land: "#abcdef" } });
+  // Every setting has a control: most read through data-option, the box
+  // through its preset menu, the parallels through their pair of fields.
   for (const option of m.options) {
-    assert.ok(container.querySelector(`[data-option="${option.name}"]`), `${option.name} has a control`);
+    const control = `[data-option="${option.name}"], [data-bbox-preset="${option.name}"], [data-pair-option="${option.name}"]`;
+    assert.ok(container.querySelector(control), `${option.name} has a control`);
   }
   assert.equal(container.querySelector('[data-option="projection"]').tagName, "SELECT");
   assert.equal(container.querySelector('[data-option="labels"]').type, "checkbox");
   assert.equal(container.querySelector('[data-option="width"]').getAttribute("max"), "4000");
   assert.equal(container.querySelector('[data-option="caption"]').tagName, "TEXTAREA");
-  assert.ok(container.querySelector('[data-option="bbox"]').getAttribute("list"));
+  // The box: a preset menu, or custom coordinates.
+  const presets = container.querySelector('[data-bbox-preset="bbox"]');
+  assert.equal(presets.tagName, "SELECT");
+  assert.ok([...presets.querySelectorAll("option")].some((o) => o.getAttribute("value") === "europe"));
+  assert.equal(presets.querySelector("option[selected]").getAttribute("value"), "__custom__");
   // Labels and help are text, not markup.
-  assert.equal(container.querySelector('[data-option-field="projection"] > span').textContent, "Projection");
-  // Advanced options sit in a collapsed part.
-  assert.ok(container.querySelector('details.mapgen-option-advanced [data-option="precision"]'));
+  assert.equal(container.querySelector('[data-option-field="projection"] > label').textContent, "Projection");
+  // Advanced settings are in the form too.
+  assert.ok(container.querySelector('[data-option="precision"]'));
   // Conditions: parallels shown for Albers, label size shown with labels.
   assert.equal(container.querySelector('[data-option-field="parallels"]').hidden, false);
   choose(container.querySelector('[data-option="projection"]'), "laea");
   updateVisibility(container, m);
   assert.equal(container.querySelector('[data-option-field="parallels"]').hidden, true);
+  // A preset chosen reads back as its name.
+  choose(presets, "europe");
+  assert.equal(readForm(container).raw.bbox, "europe");
   // Colours: the theme's, one changed.
   const { raw, colors } = readForm(container);
   assert.deepEqual(colors, { land: "#abcdef" });
@@ -177,6 +188,7 @@ test("the form renders every widget and reads back what it shows", () => {
   assert.deepEqual(errors, []);
   assert.equal(spec.projection, "laea");
   assert.equal(spec.parallels, undefined, "parallels don't apply to laea");
+  assert.equal(spec.bbox, "europe");
   assert.deepEqual(spec.colors, { land: "#abcdef" });
 });
 
