@@ -1,0 +1,281 @@
+{
+  "schema_version": "aethyme-onboarding-v2",
+  "repo": {
+    "name": "map-coloring",
+    "root": ".",
+    "kind": "repository",
+    "languages": [
+      "javascript"
+    ],
+    "primary_language": "javascript",
+    "package_manager": "npm",
+    "manifests": [
+      "package.json"
+    ]
+  },
+  "workspaces": [
+    {
+      "root": ".",
+      "manifest": {
+        "path": "package.json",
+        "kind": "node"
+      },
+      "package_manager": "npm",
+      "languages": [
+        "javascript"
+      ],
+      "members": [],
+      "lockfiles": [
+        "package-lock.json"
+      ],
+      "candidate_commands": [],
+      "evidence": [
+        {
+          "kind": "tracked_manifest",
+          "detail": "package.json",
+          "confidence": "high"
+        },
+        {
+          "kind": "root_manifest",
+          "detail": "manifest is at repository root",
+          "confidence": "high"
+        }
+      ],
+      "confidence": "high",
+      "primary": true,
+      "ranking": {
+        "root_manifest": true,
+        "declares_workspace": false,
+        "member_count": 0,
+        "ci_mentions": 0,
+        "executable_entrypoints": 0,
+        "source_files": 19
+      }
+    }
+  ],
+  "primary_workspace": {
+    "root": ".",
+    "manifest": {
+      "path": "package.json",
+      "kind": "node"
+    },
+    "package_manager": "npm",
+    "languages": [
+      "javascript"
+    ],
+    "members": [],
+    "lockfiles": [
+      "package-lock.json"
+    ],
+    "candidate_commands": [],
+    "evidence": [
+      {
+        "kind": "tracked_manifest",
+        "detail": "package.json",
+        "confidence": "high"
+      },
+      {
+        "kind": "root_manifest",
+        "detail": "manifest is at repository root",
+        "confidence": "high"
+      }
+    ],
+    "confidence": "high",
+    "primary": true,
+    "ranking": {
+      "root_manifest": true,
+      "declares_workspace": false,
+      "member_count": 0,
+      "ci_mentions": 0,
+      "executable_entrypoints": 0,
+      "source_files": 19
+    }
+  },
+  "commands": [
+    {
+      "kind": "install",
+      "command": "npm install",
+      "source": "package.json",
+      "confidence": "high"
+    },
+    {
+      "kind": "dev",
+      "command": "npm run start",
+      "source": "package.json:scripts.start",
+      "confidence": "high"
+    },
+    {
+      "kind": "fast_test",
+      "command": "npm run test",
+      "source": "package.json:scripts.test",
+      "confidence": "high"
+    },
+    {
+      "kind": "primary-script",
+      "command": "npm start",
+      "source": "package.json:scripts.start",
+      "confidence": "medium"
+    }
+  ],
+  "primary_commands": {
+    "install": "npm install",
+    "dev": "npm run start",
+    "fast_test": "npm run test"
+  },
+  "areas": [
+    {
+      "path": ".github",
+      "role": "automation",
+      "reason": "automation and CI configuration",
+      "confidence": "high"
+    },
+    {
+      "path": "assets",
+      "role": "assets",
+      "reason": "public assets or static files",
+      "confidence": "high"
+    },
+    {
+      "path": "scripts",
+      "role": "tooling",
+      "reason": "developer tooling or scripts",
+      "confidence": "high"
+    },
+    {
+      "path": "test",
+      "role": "tests",
+      "reason": "conventional test directory",
+      "confidence": "high"
+    }
+  ],
+  "entrypoints": [
+    {
+      "path": "package.json:scripts.start",
+      "kind": "script",
+      "role": "app",
+      "reason": "package start script",
+      "confidence": "medium",
+      "relevance": "supporting"
+    },
+    {
+      "path": "package.json:scripts.test",
+      "kind": "script",
+      "role": "test",
+      "reason": "package test script",
+      "confidence": "medium",
+      "relevance": "supporting"
+    },
+    {
+      "path": "test",
+      "kind": "directory",
+      "role": "test",
+      "reason": "conventional test root",
+      "confidence": "medium",
+      "relevance": "supporting"
+    }
+  ],
+  "primary_entrypoints": {
+    "app": {
+      "path": "package.json:scripts.start",
+      "kind": "script",
+      "role": "app",
+      "reason": "package start script",
+      "confidence": "medium",
+      "relevance": "supporting"
+    },
+    "test": {
+      "path": "test",
+      "kind": "directory",
+      "role": "test",
+      "reason": "conventional test root",
+      "confidence": "medium",
+      "relevance": "supporting"
+    }
+  },
+  "caution_zones": [],
+  "generated_paths": [
+    {
+      "path": ".aethyme/generated",
+      "reason": "tracked generated or vendored surface; verify ownership before editing",
+      "provenance": "tracked path classification"
+    }
+  ],
+  "dangerous_paths": [
+    {
+      "path": ".github/workflows",
+      "reason": "repository automation; changes can affect publication or shared CI",
+      "provenance": "tracked path classification"
+    }
+  ],
+  "navigation_recipes": [
+    {
+      "purpose": "Broad repository orientation for a user request",
+      "command": "aethyme explore --repo \"$PWD\" --request \"<task>\" --format answer-json"
+    },
+    {
+      "purpose": "Quick deterministic repo summary",
+      "command": "aethyme repo inspect \"$PWD\" --mode brief --json-output"
+    },
+    {
+      "purpose": "Trace likely impact before editing",
+      "command": "aethyme graph callers \"$PWD\" \"<symbol-or-file>\" --json-output"
+    }
+  ],
+  "summon": {
+    "description": "Use when starting work in an unfamiliar repository, when the task asks for repo overview, setup, architecture, entrypoints, test commands, or where to begin. Skip for narrow file-scoped edits once the relevant paths are already known.",
+    "recommended_when": [
+      "first task in repo",
+      "repo overview",
+      "setup or run instructions",
+      "architecture or entrypoints",
+      "where should I start",
+      "broad debugging or feature-localization request"
+    ],
+    "skip_when": [
+      "known file-scoped edit",
+      "follow-up inside already identified area",
+      "task already localized to concrete files"
+    ],
+    "task_signals": [
+      "unfamiliar repository",
+      "broad task with no path named",
+      "user asks how the repo is organized"
+    ]
+  },
+  "freshness": {
+    "source_digest": "e7f46f3ea8fa240aeb26da601e5f76c87f09106bd0c305a546e93a7ad98342a0",
+    "source_commit": null,
+    "source_file_count": 51,
+    "generator": "deterministic"
+  },
+  "telemetry": {
+    "sections": [
+      "repo",
+      "workspaces",
+      "primary_workspace",
+      "commands",
+      "areas",
+      "entrypoints",
+      "caution_zones",
+      "generated_paths",
+      "dangerous_paths",
+      "navigation_recipes",
+      "summon",
+      "freshness"
+    ],
+    "counts": {
+      "workspaces": 1,
+      "commands": 4,
+      "areas": 4,
+      "entrypoints": 3,
+      "caution_zones": 0,
+      "generated_paths": 1,
+      "dangerous_paths": 1,
+      "navigation_recipes": 3,
+      "notes": 0
+    },
+    "overrides_applied": false,
+    "override_source": null,
+    "override_invalid": false
+  }
+}

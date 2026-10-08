@@ -7,6 +7,9 @@ test/rsvg/out/
 # local tooling
 .aethyme/*
 !.aethyme/config.toml
+!.aethyme/gates.toml
+!.aethyme/repository.json
+!.aethyme/generated/
 .playwright-mcp/
 
 # aethyme-broker:begin (managed block — do not edit inside)
