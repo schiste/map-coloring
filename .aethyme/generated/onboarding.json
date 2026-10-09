@@ -202,6 +202,11 @@
   ],
   "dangerous_paths": [
     {
+      "path": ".aethyme/gates.toml",
+      "reason": "repository validation policy; changes affect every broker submission",
+      "provenance": "tracked path classification"
+    },
+    {
       "path": ".github/workflows",
       "reason": "repository automation; changes can affect publication or shared CI",
       "provenance": "tracked path classification"
@@ -243,9 +248,9 @@
     ]
   },
   "freshness": {
-    "source_digest": "e7f46f3ea8fa240aeb26da601e5f76c87f09106bd0c305a546e93a7ad98342a0",
+    "source_digest": "f1fcc51fe0a30faddb4c5ed315d23b02f502895159eeeb7a9076faa5330dbb51",
     "source_commit": null,
-    "source_file_count": 51,
+    "source_file_count": 53,
     "generator": "deterministic"
   },
   "telemetry": {
@@ -270,7 +275,7 @@
       "entrypoints": 3,
       "caution_zones": 0,
       "generated_paths": 1,
-      "dangerous_paths": 1,
+      "dangerous_paths": 2,
       "navigation_recipes": 3,
       "notes": 0
     },
